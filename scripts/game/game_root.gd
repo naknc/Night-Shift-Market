@@ -4,6 +4,7 @@ class_name GameRoot
 const PLAYER_SCENE: PackedScene = preload("res://scenes/prefabs/player/player.tscn")
 const HUD_SCENE: PackedScene = preload("res://scenes/prefabs/ui/game_hud.tscn")
 const SHELF_SCENE: PackedScene = preload("res://scenes/prefabs/world/stock_shelf.tscn")
+const SAVE_DEBOUNCE_SECONDS: float = 1.25
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var interactable_root: Node3D = $InteractableRoot
@@ -24,9 +25,13 @@ var _is_runtime_ready: bool = false
 var _current_day: int = 1
 var _current_phase_text: String = ""
 var _carried_label: String = ""
+var _save_dirty: bool = false
+var _is_applying_save_data: bool = false
+var _save_timer: Timer = null
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_runtime()
 	_is_runtime_ready = true
@@ -40,6 +45,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
 		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
+	_flush_pending_save()
 
 
 func configure_from_save(save_data: Dictionary) -> void:
@@ -107,6 +113,7 @@ func try_restock_shelf(shelf: Node) -> void:
 
 
 func _build_runtime() -> void:
+	_ensure_save_timer()
 	_build_world_shell()
 	_build_systems()
 	_build_player_and_hud()
@@ -313,6 +320,7 @@ func _connect_runtime_signals() -> void:
 
 
 func _apply_save_data(save_data: Dictionary) -> void:
+	_is_applying_save_data = true
 	var inventories := save_data.get("inventories", {}) as Dictionary
 	player_inventory.call("load_from_data", inventories.get("player", []) as Array)
 
@@ -352,9 +360,30 @@ func _apply_save_data(save_data: Dictionary) -> void:
 	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
 	_refresh_inventory_hud()
 	_refresh_status_hud()
+	_is_applying_save_data = false
 
 
-func _request_save() -> void:
+func _request_save(immediate: bool = false) -> void:
+	if _is_applying_save_data:
+		return
+	_save_dirty = true
+	if immediate:
+		_flush_pending_save()
+		return
+	_ensure_save_timer()
+	_save_timer.start(SAVE_DEBOUNCE_SECONDS)
+
+
+func _flush_pending_save() -> void:
+	if not _save_dirty or not _is_runtime_ready:
+		return
+	_save_dirty = false
+	if _save_timer != null and _save_timer.time_left > 0.0:
+		_save_timer.stop()
+	SaveManager.write_game_data(_build_save_data_snapshot())
+
+
+func _build_save_data_snapshot() -> Dictionary:
 	var save_data := SaveManager.get_save_data()
 	var progress := save_data.get("progress", {}) as Dictionary
 	progress["current_day"] = _current_day
@@ -373,8 +402,18 @@ func _request_save() -> void:
 	save_data["delivery"] = delivery_manager.call("serialize_state")
 	save_data["morning_shift"] = morning_shift_manager.call("serialize_state")
 	save_data["world"] = {"scene_id": "morning_delivery"}
+	return save_data
 
-	SaveManager.write_game_data(save_data)
+
+func _ensure_save_timer() -> void:
+	if _save_timer != null:
+		return
+	_save_timer = Timer.new()
+	_save_timer.name = "SaveDebounceTimer"
+	_save_timer.one_shot = true
+	_save_timer.process_callback = Timer.TIMER_PROCESS_IDLE
+	_save_timer.timeout.connect(_flush_pending_save)
+	add_child(_save_timer)
 
 
 func _refresh_inventory_hud() -> void:
@@ -402,7 +441,7 @@ func _on_carried_box_changed(label: String) -> void:
 
 
 func _on_pause_requested() -> void:
-	_request_save()
+	_request_save(true)
 	GameManager.return_to_main_menu()
 
 
@@ -458,3 +497,9 @@ func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
 		morning_shift_manager.call("_emit_objective")
 	_refresh_inventory_hud()
 	_refresh_status_hud()
+
+
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_CLOSE_REQUEST:
+			_flush_pending_save()
