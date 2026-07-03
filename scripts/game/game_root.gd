@@ -5,6 +5,12 @@ const PLAYER_SCENE: PackedScene = preload("res://scenes/prefabs/player/player.ts
 const HUD_SCENE: PackedScene = preload("res://scenes/prefabs/ui/game_hud.tscn")
 const SAVE_COORDINATOR_SCRIPT: Script = preload("res://scripts/game/coordinators/game_save_coordinator.gd")
 const WORLD_BUILDER_SCRIPT: Script = preload("res://scripts/game/builders/market_world_builder.gd")
+const DEFAULT_PLAYER_POSITION: Vector3 = Vector3(1.0, 0.0, 8.0)
+const DEFAULT_PLAYER_YAW: float = PI * 0.25
+const DEFAULT_PLAYER_PITCH: float = deg_to_rad(-56.0)
+const DEFAULT_PLAYER_ZOOM_DISTANCE: float = 17.0
+const PLAYABLE_FLOOR_HALF_EXTENTS: Vector2 = Vector2(14.0, 11.0)
+const TIME_FLOW_HOURS_PER_REAL_SECOND: float = 0.055
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var interactable_root: Node3D = $InteractableRoot
@@ -23,6 +29,7 @@ var hud: GameHud
 var _pending_save_data: Dictionary = {}
 var _is_runtime_ready: bool = false
 var _current_day: int = 1
+var _time_of_day_hours: float = 18.0
 var _current_phase_text: String = ""
 var _carried_label: String = ""
 var _save_coordinator: Node = null
@@ -48,6 +55,14 @@ func _exit_tree() -> void:
 		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 	if _save_coordinator != null:
 		_save_coordinator.flush_pending_save()
+
+
+func _process(delta: float) -> void:
+	if not _is_runtime_ready:
+		return
+	if get_tree().paused:
+		return
+	_advance_time_of_day(delta)
 
 
 func configure_from_save(save_data: Dictionary) -> void:
@@ -81,6 +96,48 @@ func try_unpack_box(box: DeliveryBox) -> void:
 	)
 	_refresh_inventory_hud()
 	_request_save()
+
+
+func send_box_to_storage(box: DeliveryBox) -> void:
+	if box == null:
+		return
+	if box.is_opened:
+		_show_notification(LocalizationManager.text(&"notification.box_already_unpacked"))
+		return
+	if box.is_inside_storage():
+		_show_notification(
+			LocalizationManager.text(
+				&"notification.box_already_in_storage",
+				{"box": box.get_display_name()}
+			)
+		)
+		return
+	if storage_zone == null:
+		return
+
+	var storage_box_count := 0
+	for active_box in delivery_manager.get_active_boxes():
+		if active_box == box:
+			continue
+		if active_box is DeliveryBox and active_box.is_inside_storage():
+			storage_box_count += 1
+
+	var start_position := box.global_position
+	var target_position := storage_zone.get_drop_position(storage_box_count)
+	box.drop_to(interactable_root, start_position, Basis.IDENTITY)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_CUBIC)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(box, "global_position", target_position, 0.28)
+	tween.finished.connect(func() -> void:
+		_request_save()
+	)
+	_show_notification(
+		LocalizationManager.text(
+			&"notification.box_sent_to_storage",
+			{"box": box.get_display_name()}
+		)
+	)
 
 
 func try_restock_shelf(shelf: StockShelf) -> void:
@@ -239,16 +296,24 @@ func _apply_save_data(save_data: Dictionary) -> void:
 	delivery_manager.initialize_delivery(delivery_state, storage_zone, interactable_root)
 
 	var player_state := save_data.get("player", {}) as Dictionary
-	var position_data: Array = player_state.get("position", [0.0, 0.0, 5.2])
-	var player_position := Vector3(0.0, 0.0, 5.2)
+	var position_data: Array = player_state.get("position", [DEFAULT_PLAYER_POSITION.x, DEFAULT_PLAYER_POSITION.y, DEFAULT_PLAYER_POSITION.z])
+	var player_position := DEFAULT_PLAYER_POSITION
 	if position_data is Array and position_data.size() >= 3:
 		player_position = Vector3(float(position_data[0]), float(position_data[1]), float(position_data[2]))
-	player.apply_saved_view(player_position, float(player_state.get("yaw", PI)), float(player_state.get("pitch", 0.0)))
+	player_position = _sanitize_player_position(player_position)
+	player.apply_saved_view(
+		player_position,
+		float(player_state.get("yaw", DEFAULT_PLAYER_YAW)),
+		float(player_state.get("pitch", DEFAULT_PLAYER_PITCH)),
+		float(player_state.get("zoom_distance", DEFAULT_PLAYER_ZOOM_DISTANCE))
+	)
 
 	var progress := save_data.get("progress", {}) as Dictionary
 	_current_day = int(progress.get("current_day", 1))
+	_time_of_day_hours = clampf(float(progress.get("time_of_day", 18.0)), 0.0, 23.99)
 	if _save_coordinator != null:
 		_save_coordinator.current_day = _current_day
+		_save_coordinator.current_time_of_day = _time_of_day_hours
 
 	morning_shift_manager.load_state(save_data.get("morning_shift", {}) as Dictionary)
 	_current_phase_text = _phase_to_text(morning_shift_manager.get_phase())
@@ -259,10 +324,19 @@ func _apply_save_data(save_data: Dictionary) -> void:
 		_save_coordinator.is_applying_save_data = false
 
 
+func _sanitize_player_position(position_value: Vector3) -> Vector3:
+	if absf(position_value.x) > PLAYABLE_FLOOR_HALF_EXTENTS.x - 0.6:
+		return DEFAULT_PLAYER_POSITION
+	if absf(position_value.z) > PLAYABLE_FLOOR_HALF_EXTENTS.y - 0.6:
+		return DEFAULT_PLAYER_POSITION
+	return Vector3(position_value.x, 0.0, position_value.z)
+
+
 func _request_save(immediate: bool = false) -> void:
 	if _save_coordinator == null:
 		return
 	_save_coordinator.current_day = _current_day
+	_save_coordinator.current_time_of_day = _time_of_day_hours
 	_save_coordinator.request_save(immediate)
 
 
@@ -277,7 +351,7 @@ func _refresh_inventory_hud() -> void:
 
 
 func _refresh_status_hud() -> void:
-	hud.set_status(_current_day, _current_phase_text, _carried_label)
+	hud.set_status(_current_day, _time_of_day_hours, _current_phase_text, _carried_label)
 
 
 func _show_notification(text_value: String) -> void:
@@ -315,3 +389,12 @@ func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
 		morning_shift_manager.refresh_objective()
 	_refresh_inventory_hud()
 	_refresh_status_hud()
+
+
+func _advance_time_of_day(delta: float) -> void:
+	var previous_hour_bucket := int(floor(_time_of_day_hours * 12.0))
+	_time_of_day_hours = wrapf(_time_of_day_hours + delta * TIME_FLOW_HOURS_PER_REAL_SECOND, 0.0, 24.0)
+	var current_hour_bucket := int(floor(_time_of_day_hours * 12.0))
+	if current_hour_bucket != previous_hour_bucket:
+		_refresh_status_hud()
+		_request_save()

@@ -12,12 +12,14 @@ var _language_preference: StringName = DEFAULT_LANGUAGE_PREFERENCE
 var _current_locale: StringName = DEFAULT_FALLBACK_LOCALE
 var _locale_entries: Array[Dictionary] = []
 var _translations_by_locale: Dictionary = {}
+var _fallback_font_installed: bool = false
 
 
 func initialize() -> void:
 	if _initialized:
 		return
 
+	_install_fallback_font()
 	_load_manifest()
 	_load_translations()
 	_initialized = true
@@ -211,3 +213,20 @@ func _load_json_file(path: String) -> Variant:
 	var parsed: Variant = JSON.parse_string(file.get_as_text())
 	file.close()
 	return parsed
+
+
+func _install_fallback_font() -> void:
+	if _fallback_font_installed:
+		return
+
+	var system_font := SystemFont.new()
+	system_font.font_names = PackedStringArray([
+		".SF NS Text",
+		"Helvetica Neue",
+		"Arial",
+		"Noto Sans",
+		"DejaVu Sans"
+	])
+	ThemeDB.fallback_font = system_font
+	ThemeDB.fallback_font_size = 18
+	_fallback_font_installed = true

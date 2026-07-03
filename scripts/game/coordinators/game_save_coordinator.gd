@@ -9,6 +9,7 @@ var shelves: Array[StockShelf] = []
 var delivery_manager: DeliveryManager = null
 var morning_shift_manager: MorningShiftManager = null
 var current_day: int = 1
+var current_time_of_day: float = 18.0
 var is_runtime_ready: bool = false
 var is_applying_save_data: bool = false
 
@@ -68,6 +69,7 @@ func _build_save_data_snapshot() -> Dictionary:
 	var save_data := SaveManager.get_save_data()
 	var progress := save_data.get("progress", {}) as Dictionary
 	progress["current_day"] = current_day
+	progress["time_of_day"] = current_time_of_day
 	progress["has_started"] = true
 	save_data["progress"] = progress
 

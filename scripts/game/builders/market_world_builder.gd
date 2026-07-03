@@ -37,28 +37,35 @@ func build(world_root: Node3D, interactable_root: Node3D) -> Dictionary:
 	accent_material.albedo_color = Color(0.55, 0.37, 0.22)
 	accent_material.roughness = 0.84
 
-	world_root.add_child(_build_box(Vector3(0.0, -0.05, 0.0), Vector3(28.0, 0.1, 22.0), floor_material, "Floor"))
-	world_root.add_child(_build_box(Vector3(0.0, 3.1, -10.8), Vector3(18.0, 6.2, 0.25), wall_material, "BackWall"))
-	world_root.add_child(_build_box(Vector3(-9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "LeftWall"))
-	world_root.add_child(_build_box(Vector3(9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "RightWall"))
-	world_root.add_child(_build_box(Vector3(-2.8, 3.1, 10.8), Vector3(6.0, 6.2, 0.25), wall_material, "FrontWallLeft"))
-	world_root.add_child(_build_box(Vector3(5.4, 3.1, 10.8), Vector3(7.2, 6.2, 0.25), wall_material, "FrontWallRight"))
-	world_root.add_child(_build_box(Vector3(-5.8, 1.5, 5.6), Vector3(2.0, 3.0, 4.0), accent_material, "StorageDivider"))
-	world_root.add_child(_build_box(Vector3(0.0, 3.4, 0.0), Vector3(18.0, 0.18, 22.0), wall_material, "Ceiling"))
-	world_root.add_child(_build_box(Vector3(0.0, 0.7, 6.5), Vector3(4.0, 1.4, 1.2), accent_material, "CheckoutCounter"))
+	world_root.add_child(_build_static_box(Vector3(0.0, -0.3, 0.0), Vector3(28.0, 0.6, 22.0), floor_material, "Floor"))
+	world_root.add_child(_build_static_box(Vector3(0.0, 3.1, -10.8), Vector3(18.0, 6.2, 0.25), wall_material, "BackWall"))
+	world_root.add_child(_build_static_box(Vector3(-9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "LeftWall"))
+	world_root.add_child(_build_static_box(Vector3(9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "RightWall"))
+	world_root.add_child(_build_static_box(Vector3(-3.4, 3.1, 10.8), Vector3(5.2, 6.2, 0.25), wall_material, "FrontWallLeft"))
+	world_root.add_child(_build_static_box(Vector3(5.9, 3.1, 10.8), Vector3(6.2, 6.2, 0.25), wall_material, "FrontWallRight"))
+	world_root.add_child(_build_static_box(Vector3(-5.8, 1.5, 5.6), Vector3(2.0, 3.0, 4.0), accent_material, "StorageDivider"))
+	world_root.add_child(_build_static_box(Vector3(0.0, 3.4, 0.0), Vector3(18.0, 0.18, 22.0), wall_material, "Ceiling"))
+	world_root.add_child(_build_static_box(Vector3(0.0, 0.7, 6.5), Vector3(4.0, 1.4, 1.2), accent_material, "CheckoutCounter"))
+	world_root.add_child(_build_static_box(Vector3(0.0, -0.2, 21.0), Vector3(18.0, 0.4, 22.0), floor_material, "ExteriorApron"))
 
 	var lane_marker := MeshInstance3D.new()
 	lane_marker.name = "LoadingLane"
 	var lane_mesh := PlaneMesh.new()
-	lane_mesh.size = Vector2(8.0, 6.0)
+	lane_mesh.size = Vector2(8.5, 8.0)
 	lane_marker.mesh = lane_mesh
-	lane_marker.position = Vector3(12.0, 0.02, -8.0)
+	lane_marker.position = Vector3(1.0, 0.02, 15.4)
 	lane_marker.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	var lane_material := StandardMaterial3D.new()
 	lane_material.albedo_color = Color(0.17, 0.17, 0.19)
 	lane_material.roughness = 0.98
 	lane_marker.material_override = lane_material
 	world_root.add_child(lane_marker)
+
+	var lane_border_material := StandardMaterial3D.new()
+	lane_border_material.albedo_color = Color(0.92, 0.74, 0.38)
+	lane_border_material.roughness = 0.82
+	world_root.add_child(_build_static_box(Vector3(-3.45, 0.2, 15.4), Vector3(0.18, 0.4, 8.0), lane_border_material, "LoadingLaneLeftBorder"))
+	world_root.add_child(_build_static_box(Vector3(5.45, 0.2, 15.4), Vector3(0.18, 0.4, 8.0), lane_border_material, "LoadingLaneRightBorder"))
 
 	var storage_zone := StorageZone.new()
 	storage_zone.name = "StorageZone"
@@ -131,15 +138,25 @@ func _collect_existing_shelves(interactable_root: Node3D) -> Array[StockShelf]:
 	return shelves
 
 
-func _build_box(position_value: Vector3, size_value: Vector3, material: Material, node_name: String) -> MeshInstance3D:
+func _build_static_box(position_value: Vector3, size_value: Vector3, material: Material, node_name: String) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = node_name
+	body.position = position_value
+
 	var box := MeshInstance3D.new()
-	box.name = node_name
-	box.position = position_value
 	var box_mesh := BoxMesh.new()
 	box_mesh.size = size_value
 	box.mesh = box_mesh
 	box.material_override = material
-	return box
+	body.add_child(box)
+
+	var collider := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size_value
+	collider.shape = shape
+	body.add_child(collider)
+
+	return body
 
 
 func _create_environment() -> Environment:

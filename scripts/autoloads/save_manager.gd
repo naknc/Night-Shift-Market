@@ -10,6 +10,10 @@ const SAVE_PATH: String = "user://savegame.json"
 const SAVE_BACKUP_PATH: String = "user://savegame.backup.json"
 const SAVE_TEMP_PATH: String = "user://savegame.tmp.json"
 const SAVE_VERSION: int = 1
+const DEFAULT_PLAYER_POSITION: Array[float] = [1.0, 0.0, 8.0]
+const DEFAULT_PLAYER_YAW: float = PI * 0.25
+const DEFAULT_PLAYER_PITCH: float = deg_to_rad(-56.0)
+const DEFAULT_PLAYER_ZOOM_DISTANCE: float = 17.0
 
 const DEFAULT_SETTINGS: Dictionary = {
 	"general": {
@@ -49,9 +53,10 @@ const DEFAULT_SAVE_DATA: Dictionary = {
 		"scene_id": "market_preview"
 	},
 	"player": {
-		"position": [0.0, 0.0, 5.2],
-		"yaw": PI,
-		"pitch": 0.0
+		"position": DEFAULT_PLAYER_POSITION,
+		"yaw": DEFAULT_PLAYER_YAW,
+		"pitch": DEFAULT_PLAYER_PITCH,
+		"zoom_distance": DEFAULT_PLAYER_ZOOM_DISTANCE
 	},
 	"inventories": {
 		"player": []
@@ -59,7 +64,7 @@ const DEFAULT_SAVE_DATA: Dictionary = {
 	"shelves": [],
 	"delivery": {
 		"state": "arriving",
-		"truck_position": [24.0, 0.0, -8.0],
+		"truck_position": [1.0, 0.0, 25.0],
 		"boxes": []
 	},
 	"morning_shift": {

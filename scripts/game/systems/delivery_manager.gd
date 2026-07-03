@@ -264,15 +264,15 @@ func _set_state(state: StringName) -> void:
 
 
 func _get_truck_entry_position() -> Vector3:
-	return Vector3(24.0, 0.0, -8.0)
+	return Vector3(1.0, 0.0, 25.0)
 
 
 func _get_truck_park_position() -> Vector3:
-	return Vector3(11.2, 0.0, -8.0)
+	return Vector3(1.0, 0.0, 15.4)
 
 
 func _get_truck_exit_position() -> Vector3:
-	return Vector3(-28.0, 0.0, -8.0)
+	return Vector3(1.0, 0.0, 31.0)
 
 
 func _set_truck_position(position_value: Vector3) -> void:

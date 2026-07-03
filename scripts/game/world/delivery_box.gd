@@ -63,13 +63,9 @@ func get_interaction_prompt() -> String:
 	if is_opened:
 		return ""
 	var box_name := get_display_name()
-	if is_carried:
-		if is_inside_storage():
-			return LocalizationManager.text(&"prompt.box.tap_unpack", {"box": box_name})
-		return LocalizationManager.text(&"prompt.box.move_to_storage", {"box": box_name})
 	if is_inside_storage():
-		return LocalizationManager.text(&"prompt.box.tap_or_hold", {"box": box_name})
-	return LocalizationManager.text(&"prompt.box.hold_carry", {"box": box_name})
+		return LocalizationManager.text(&"prompt.box.click_unpack", {"box": box_name})
+	return LocalizationManager.text(&"prompt.box.click_send_to_storage", {"box": box_name})
 
 
 func get_display_name() -> String:

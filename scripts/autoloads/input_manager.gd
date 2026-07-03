@@ -36,7 +36,7 @@ func apply_saved_settings() -> void:
 func get_move_vector() -> Vector2:
 	if not _initialized:
 		initialize()
-	return Input.get_vector(ACTION_MOVE_LEFT, ACTION_MOVE_RIGHT, ACTION_MOVE_FORWARD, ACTION_MOVE_BACK)
+	return Input.get_vector(ACTION_MOVE_LEFT, ACTION_MOVE_RIGHT, ACTION_MOVE_BACK, ACTION_MOVE_FORWARD)
 
 
 func is_run_pressed() -> bool:

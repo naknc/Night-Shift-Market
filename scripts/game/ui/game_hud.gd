@@ -6,16 +6,8 @@ signal look_input_emitted(delta: Vector2)
 signal interact_pressed()
 signal grab_pressed()
 
-const JOYSTICK_RADIUS: float = 76.0
-
-var _move_pointer_id: int = -1
-var _look_pointer_id: int = -1
-var _move_origin: Vector2 = Vector2.ZERO
-var _move_value: Vector2 = Vector2.ZERO
-var _look_last_position: Vector2 = Vector2.ZERO
-var _mouse_move_active: bool = false
-var _mouse_look_active: bool = false
 var _current_day: int = 1
+var _current_time_of_day: float = 18.0
 var _current_phase_text: String = ""
 var _current_carried_label: String = ""
 var _cached_inventory_lines: PackedStringArray = PackedStringArray()
@@ -26,10 +18,9 @@ var _prompt_label: Label
 var _notification_label: Label
 var _inventory_label: Label
 var _status_label: Label
-var _joystick_base: PanelContainer
-var _joystick_knob: PanelContainer
-var _interact_button: Button
-var _grab_button: Button
+var _controls_label: Label
+var _primary_button: Button
+var _route_button: Button
 
 
 func _ready() -> void:
@@ -37,24 +28,12 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_interface()
-	_refresh_joystick_visual()
 	_apply_localized_text()
 
 
 func _exit_tree() -> void:
 	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
 		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
-
-
-func _input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch:
-		_handle_touch(event as InputEventScreenTouch)
-	elif event is InputEventScreenDrag:
-		_handle_drag(event as InputEventScreenDrag)
-	elif event is InputEventMouseButton:
-		_handle_mouse_button(event as InputEventMouseButton)
-	elif event is InputEventMouseMotion:
-		_handle_mouse_motion(event as InputEventMouseMotion)
 
 
 func set_objective(title_text: String, detail_text: String) -> void:
@@ -67,8 +46,9 @@ func set_prompt(text_value: String) -> void:
 	_prompt_label.visible = not text_value.is_empty()
 
 
-func set_status(day_number: int, phase_text: String, carried_label: String) -> void:
+func set_status(day_number: int, time_of_day: float, phase_text: String, carried_label: String) -> void:
 	_current_day = day_number
+	_current_time_of_day = time_of_day
 	_current_phase_text = phase_text
 	_current_carried_label = carried_label
 	var carry_text := LocalizationManager.text(&"hud.hands_free")
@@ -78,6 +58,7 @@ func set_status(day_number: int, phase_text: String, carried_label: String) -> v
 		&"hud.status_format",
 		{
 			"day": day_number,
+			"time": _format_time_of_day(time_of_day),
 			"phase": phase_text,
 			"carry": carry_text
 		}
@@ -98,10 +79,10 @@ func set_inventory_lines(lines: PackedStringArray) -> void:
 func show_notification(text_value: String) -> void:
 	_notification_label.text = text_value
 	_notification_label.visible = true
-	var tween := create_tween()
 	_notification_label.modulate = Color(1.0, 1.0, 1.0, 1.0)
-	tween.tween_interval(2.0)
-	tween.tween_property(_notification_label, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.4)
+	var tween := create_tween()
+	tween.tween_interval(1.8)
+	tween.tween_property(_notification_label, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.25)
 	tween.finished.connect(func() -> void:
 		_notification_label.visible = false
 	)
@@ -110,10 +91,10 @@ func show_notification(text_value: String) -> void:
 func _build_interface() -> void:
 	var root_margin := MarginContainer.new()
 	root_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root_margin.add_theme_constant_override("margin_left", 22)
-	root_margin.add_theme_constant_override("margin_right", 22)
-	root_margin.add_theme_constant_override("margin_top", 18)
-	root_margin.add_theme_constant_override("margin_bottom", 18)
+	root_margin.add_theme_constant_override("margin_left", 24)
+	root_margin.add_theme_constant_override("margin_right", 24)
+	root_margin.add_theme_constant_override("margin_top", 20)
+	root_margin.add_theme_constant_override("margin_bottom", 20)
 	add_child(root_margin)
 
 	var overlay := Control.new()
@@ -122,9 +103,8 @@ func _build_interface() -> void:
 	root_margin.add_child(overlay)
 
 	var top_left_panel := PanelContainer.new()
-	top_left_panel.position = Vector2(0.0, 0.0)
-	top_left_panel.custom_minimum_size = Vector2(430.0, 0.0)
-	top_left_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.12, 0.09, 0.07, 0.84)))
+	top_left_panel.custom_minimum_size = Vector2(460.0, 0.0)
+	top_left_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.12, 0.09, 0.07, 0.86)))
 	overlay.add_child(top_left_panel)
 
 	var top_left_margin := MarginContainer.new()
@@ -150,7 +130,7 @@ func _build_interface() -> void:
 
 	_objective_detail = Label.new()
 	_objective_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_objective_detail.custom_minimum_size = Vector2(390.0, 0.0)
+	_objective_detail.custom_minimum_size = Vector2(410.0, 0.0)
 	_objective_detail.add_theme_font_size_override("font_size", 18)
 	_objective_detail.add_theme_color_override("font_color", Color(0.95, 0.90, 0.84))
 	top_left_column.add_child(_objective_detail)
@@ -158,10 +138,10 @@ func _build_interface() -> void:
 	var top_right_panel := PanelContainer.new()
 	top_right_panel.anchor_left = 1.0
 	top_right_panel.anchor_right = 1.0
-	top_right_panel.offset_left = -340.0
+	top_right_panel.offset_left = -350.0
 	top_right_panel.offset_right = 0.0
-	top_right_panel.custom_minimum_size = Vector2(340.0, 0.0)
-	top_right_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.13, 0.09, 0.06, 0.84)))
+	top_right_panel.custom_minimum_size = Vector2(350.0, 0.0)
+	top_right_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.13, 0.09, 0.06, 0.86)))
 	overlay.add_child(top_right_panel)
 
 	var top_right_margin := MarginContainer.new()
@@ -177,41 +157,71 @@ func _build_interface() -> void:
 	_inventory_label.add_theme_color_override("font_color", Color(0.96, 0.93, 0.87))
 	top_right_margin.add_child(_inventory_label)
 
-	var bottom_panel := PanelContainer.new()
-	bottom_panel.anchor_left = 0.5
-	bottom_panel.anchor_top = 1.0
-	bottom_panel.anchor_right = 0.5
-	bottom_panel.anchor_bottom = 1.0
-	bottom_panel.offset_left = -290.0
-	bottom_panel.offset_top = -110.0
-	bottom_panel.offset_right = 290.0
-	bottom_panel.offset_bottom = -18.0
-	bottom_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.10, 0.08, 0.06, 0.78)))
-	overlay.add_child(bottom_panel)
+	var bottom_center_panel := PanelContainer.new()
+	bottom_center_panel.anchor_left = 0.5
+	bottom_center_panel.anchor_top = 1.0
+	bottom_center_panel.anchor_right = 0.5
+	bottom_center_panel.anchor_bottom = 1.0
+	bottom_center_panel.offset_left = -310.0
+	bottom_center_panel.offset_top = -124.0
+	bottom_center_panel.offset_right = 310.0
+	bottom_center_panel.offset_bottom = -18.0
+	bottom_center_panel.add_theme_stylebox_override("panel", _make_panel_style(Color(0.10, 0.08, 0.06, 0.82)))
+	overlay.add_child(bottom_center_panel)
 
 	var bottom_margin := MarginContainer.new()
 	bottom_margin.add_theme_constant_override("margin_left", 18)
 	bottom_margin.add_theme_constant_override("margin_right", 18)
 	bottom_margin.add_theme_constant_override("margin_top", 14)
 	bottom_margin.add_theme_constant_override("margin_bottom", 14)
-	bottom_panel.add_child(bottom_margin)
+	bottom_center_panel.add_child(bottom_margin)
+
+	var bottom_column := VBoxContainer.new()
+	bottom_column.add_theme_constant_override("separation", 8)
+	bottom_margin.add_child(bottom_column)
 
 	_prompt_label = Label.new()
 	_prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_prompt_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_prompt_label.add_theme_font_size_override("font_size", 18)
+	_prompt_label.add_theme_font_size_override("font_size", 20)
 	_prompt_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
 	_prompt_label.visible = false
-	bottom_margin.add_child(_prompt_label)
+	bottom_column.add_child(_prompt_label)
+
+	_controls_label = Label.new()
+	_controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_controls_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_controls_label.add_theme_font_size_override("font_size", 16)
+	_controls_label.add_theme_color_override("font_color", Color(0.93, 0.86, 0.76))
+	bottom_column.add_child(_controls_label)
+
+	var button_row := HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	button_row.add_theme_constant_override("separation", 12)
+	bottom_column.add_child(button_row)
+
+	_primary_button = _make_action_button("")
+	_primary_button.pressed.connect(func() -> void:
+		interact_pressed.emit()
+	)
+	_attach_button_feedback(_primary_button)
+	button_row.add_child(_primary_button)
+
+	_route_button = _make_action_button("")
+	_route_button.pressed.connect(func() -> void:
+		grab_pressed.emit()
+	)
+	_attach_button_feedback(_route_button)
+	button_row.add_child(_route_button)
 
 	_notification_label = Label.new()
 	_notification_label.anchor_left = 0.5
-	_notification_label.anchor_top = 0.72
+	_notification_label.anchor_top = 0.77
 	_notification_label.anchor_right = 0.5
-	_notification_label.anchor_bottom = 0.72
-	_notification_label.offset_left = -260.0
+	_notification_label.anchor_bottom = 0.77
+	_notification_label.offset_left = -280.0
 	_notification_label.offset_top = 0.0
-	_notification_label.offset_right = 260.0
+	_notification_label.offset_right = 280.0
 	_notification_label.offset_bottom = 48.0
 	_notification_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_notification_label.add_theme_font_size_override("font_size", 18)
@@ -219,45 +229,7 @@ func _build_interface() -> void:
 	_notification_label.visible = false
 	overlay.add_child(_notification_label)
 
-	_joystick_base = PanelContainer.new()
-	_joystick_base.position = Vector2(34.0, size.y - 210.0)
-	_joystick_base.custom_minimum_size = Vector2(152.0, 152.0)
-	_joystick_base.add_theme_stylebox_override("panel", _make_circle_style(Color(0.16, 0.12, 0.09, 0.52), 76))
-	overlay.add_child(_joystick_base)
-
-	_joystick_knob = PanelContainer.new()
-	_joystick_knob.custom_minimum_size = Vector2(68.0, 68.0)
-	_joystick_knob.add_theme_stylebox_override("panel", _make_circle_style(Color(0.94, 0.80, 0.58, 0.88), 34))
-	_joystick_base.add_child(_joystick_knob)
-
-	var button_column := VBoxContainer.new()
-	button_column.anchor_left = 1.0
-	button_column.anchor_top = 1.0
-	button_column.anchor_right = 1.0
-	button_column.anchor_bottom = 1.0
-	button_column.offset_left = -176.0
-	button_column.offset_top = -204.0
-	button_column.offset_right = -12.0
-	button_column.offset_bottom = -18.0
-	button_column.alignment = BoxContainer.ALIGNMENT_END
-	button_column.add_theme_constant_override("separation", 12)
-	overlay.add_child(button_column)
-
-	_interact_button = _make_action_button("")
-	_interact_button.pressed.connect(func() -> void:
-		interact_pressed.emit()
-	)
-	_attach_button_feedback(_interact_button)
-	button_column.add_child(_interact_button)
-
-	_grab_button = _make_action_button("")
-	_grab_button.pressed.connect(func() -> void:
-		grab_pressed.emit()
-	)
-	_attach_button_feedback(_grab_button)
-	button_column.add_child(_grab_button)
-
-	set_status(1, LocalizationManager.text(&"phase.truck_arrival"), "")
+	set_status(1, 18.0, LocalizationManager.text(&"phase.truck_arrival"), "")
 	set_inventory_lines(PackedStringArray())
 	set_objective(
 		LocalizationManager.text(&"objective.truck_arrival.title"),
@@ -265,111 +237,17 @@ func _build_interface() -> void:
 	)
 
 
-func _handle_touch(event: InputEventScreenTouch) -> void:
-	var position_value := event.position
-
-	if event.pressed:
-		if _move_pointer_id == -1 and position_value.x <= size.x * 0.42 and not _is_over_action_buttons(position_value):
-			_move_pointer_id = event.index
-			_move_origin = position_value
-			_update_move_value(position_value)
-			return
-		if _look_pointer_id == -1 and position_value.x > size.x * 0.42 and not _is_over_action_buttons(position_value):
-			_look_pointer_id = event.index
-			_look_last_position = position_value
-			return
-	else:
-		if event.index == _move_pointer_id:
-			_move_pointer_id = -1
-			_move_value = Vector2.ZERO
-			move_vector_changed.emit(Vector2.ZERO)
-			_refresh_joystick_visual()
-		if event.index == _look_pointer_id:
-			_look_pointer_id = -1
-
-
-func _handle_drag(event: InputEventScreenDrag) -> void:
-	if event.index == _move_pointer_id:
-		_update_move_value(event.position)
-		return
-
-	if event.index == _look_pointer_id:
-		var relative := event.position - _look_last_position
-		_look_last_position = event.position
-		look_input_emitted.emit(relative * 0.75)
-
-
-func _handle_mouse_button(event: InputEventMouseButton) -> void:
-	if event.button_index != MOUSE_BUTTON_LEFT:
-		return
-
-	var position_value := event.position
-	if event.pressed:
-		if _is_over_action_buttons(position_value):
-			return
-		if position_value.x <= size.x * 0.42:
-			_mouse_move_active = true
-			_move_origin = position_value
-			_update_move_value(position_value)
-			return
-		_mouse_look_active = true
-		_look_last_position = position_value
-		return
-
-	if _mouse_move_active:
-		_mouse_move_active = false
-		_move_value = Vector2.ZERO
-		move_vector_changed.emit(Vector2.ZERO)
-		_refresh_joystick_visual()
-	if _mouse_look_active:
-		_mouse_look_active = false
-
-
-func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
-	if _mouse_move_active:
-		_update_move_value(event.position)
-		return
-
-	if _mouse_look_active:
-		look_input_emitted.emit(event.relative * 0.75)
-
-
-func _update_move_value(pointer_position: Vector2) -> void:
-	var offset := pointer_position - _move_origin
-	if offset.length() > JOYSTICK_RADIUS:
-		offset = offset.normalized() * JOYSTICK_RADIUS
-	_move_value = offset / JOYSTICK_RADIUS
-	move_vector_changed.emit(Vector2(_move_value.x, -_move_value.y))
-	_refresh_joystick_visual()
-
-
-func _refresh_joystick_visual() -> void:
-	if _joystick_base == null or _joystick_knob == null:
-		return
-
-	var viewport_size := get_viewport_rect().size
-	_joystick_base.position = Vector2(34.0, viewport_size.y - 210.0)
-	var base_center := (_joystick_base.custom_minimum_size - _joystick_knob.custom_minimum_size) * 0.5
-	_joystick_knob.position = base_center + _move_value * JOYSTICK_RADIUS
-
-
-func _is_over_action_buttons(point: Vector2) -> bool:
-	if _interact_button != null and _interact_button.get_global_rect().has_point(point):
-		return true
-	if _grab_button != null and _grab_button.get_global_rect().has_point(point):
-		return true
-	return false
-
-
 func _make_action_button(text_value: String) -> Button:
 	var button := Button.new()
 	button.text = text_value
-	button.custom_minimum_size = Vector2(0.0, 62.0)
-	button.add_theme_font_size_override("font_size", 20)
-	button.add_theme_color_override("font_color", Color(0.22, 0.12, 0.06))
+	button.focus_mode = Control.FOCUS_ALL
+	button.custom_minimum_size = Vector2(200.0, 56.0)
+	button.add_theme_font_size_override("font_size", 19)
+	button.add_theme_color_override("font_color", Color(0.20, 0.11, 0.05))
 	button.add_theme_stylebox_override("normal", _make_button_style(Color(0.98, 0.83, 0.58)))
 	button.add_theme_stylebox_override("hover", _make_button_style(Color(1.0, 0.88, 0.66)))
 	button.add_theme_stylebox_override("pressed", _make_button_style(Color(0.88, 0.70, 0.43)))
+	button.add_theme_stylebox_override("focus", _make_button_style(Color(1.0, 0.90, 0.69)))
 	return button
 
 
@@ -395,15 +273,13 @@ func _attach_button_feedback(button: BaseButton) -> void:
 func _animate_button_state(button: Control, is_pressed: bool) -> void:
 	if button == null:
 		return
-	var target_scale := Vector2.ONE
-	var target_position := button.get_meta("rest_position", button.position) as Vector2
 	if not button.has_meta("rest_position"):
 		button.set_meta("rest_position", button.position)
+	var target_scale := Vector2.ONE
+	var target_position := button.get_meta("rest_position") as Vector2
 	if is_pressed:
 		target_scale = Vector2(0.97, 0.97)
-		target_position = (button.get_meta("rest_position") as Vector2) + Vector2(0.0, 4.0)
-	else:
-		target_position = button.get_meta("rest_position") as Vector2
+		target_position += Vector2(0.0, 4.0)
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
 	tween.set_ease(Tween.EASE_OUT)
@@ -417,12 +293,21 @@ func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
 
 func _apply_localized_text() -> void:
 	LocalizationManager.apply_control_locale(self)
-	if _interact_button != null:
-		_interact_button.text = LocalizationManager.text(&"hud.interact")
-	if _grab_button != null:
-		_grab_button.text = LocalizationManager.text(&"hud.carry_drop")
+	if _primary_button != null:
+		_primary_button.text = LocalizationManager.text(&"hud.primary_action")
+	if _route_button != null:
+		_route_button.text = LocalizationManager.text(&"hud.send_to_storage")
+	if _controls_label != null:
+		_controls_label.text = LocalizationManager.text(&"hud.controls_hint")
 	set_inventory_lines(_cached_inventory_lines)
-	set_status(_current_day, _current_phase_text, _current_carried_label)
+	set_status(_current_day, _current_time_of_day, _current_phase_text, _current_carried_label)
+
+
+func _format_time_of_day(time_of_day: float) -> String:
+	var normalized := wrapf(time_of_day, 0.0, 24.0)
+	var hour := int(floor(normalized))
+	var minute := int(floor((normalized - float(hour)) * 60.0))
+	return "%02d:%02d" % [hour, minute]
 
 
 func _make_panel_style(color: Color) -> StyleBoxFlat:
@@ -438,22 +323,12 @@ func _make_panel_style(color: Color) -> StyleBoxFlat:
 func _make_button_style(color: Color) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
-	style.corner_radius_top_left = 22
-	style.corner_radius_top_right = 22
-	style.corner_radius_bottom_right = 22
-	style.corner_radius_bottom_left = 22
+	style.corner_radius_top_left = 18
+	style.corner_radius_top_right = 18
+	style.corner_radius_bottom_right = 18
+	style.corner_radius_bottom_left = 18
 	style.content_margin_left = 18.0
 	style.content_margin_right = 18.0
 	style.content_margin_top = 12.0
 	style.content_margin_bottom = 12.0
-	return style
-
-
-func _make_circle_style(color: Color, radius: int) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = color
-	style.corner_radius_top_left = radius
-	style.corner_radius_top_right = radius
-	style.corner_radius_bottom_right = radius
-	style.corner_radius_bottom_left = radius
 	return style
