@@ -67,15 +67,15 @@ func serialize_state() -> Dictionary:
 
 
 func get_interaction_prompt(inventory: Node, catalog: Node) -> String:
-	var selected_product: Variant = _choose_restock_product(inventory, catalog)
+	var restock_context := _build_restock_context(inventory, catalog)
+	var selected_product: Variant = restock_context.get("selected_product")
 	var localized_shelf_label := get_display_name()
 	if selected_product == null:
 		if current_quantity > 0:
 			return LocalizationManager.text(&"prompt.shelf.stocked_units", {"shelf": localized_shelf_label, "quantity": current_quantity})
 		return LocalizationManager.text(&"prompt.shelf.empty", {"shelf": localized_shelf_label})
 
-	var max_quantity := _get_max_quantity_for_product(selected_product)
-	if current_quantity >= max_quantity:
+	if not bool(restock_context.get("can_restock", false)):
 		return LocalizationManager.text(&"prompt.shelf.fully_stocked", {"shelf": localized_shelf_label})
 
 	return LocalizationManager.text(
@@ -83,7 +83,7 @@ func get_interaction_prompt(inventory: Node, catalog: Node) -> String:
 		{
 			"product": String(selected_product.get("display_name")),
 			"current": current_quantity,
-			"maximum": max_quantity
+			"maximum": int(restock_context.get("max_quantity", current_quantity))
 		}
 	)
 
@@ -130,6 +130,11 @@ func needs_stock(catalog: Node) -> bool:
 	return current_quantity < _get_max_quantity_for_product(product)
 
 
+func can_restock_from_inventory(inventory: Node, catalog: Node) -> bool:
+	var restock_context := _build_restock_context(inventory, catalog)
+	return bool(restock_context.get("can_restock", false))
+
+
 func _choose_restock_product(inventory: Node, catalog: Node) -> Variant:
 	if current_product_id != StringName():
 		var current_product: Variant = catalog.call("get_product", current_product_id)
@@ -150,6 +155,30 @@ func _choose_restock_product(inventory: Node, catalog: Node) -> Variant:
 			best_product = product
 
 	return best_product
+
+
+func _build_restock_context(inventory: Node, catalog: Node) -> Dictionary:
+	if inventory == null or catalog == null:
+		return {
+			"selected_product": null,
+			"max_quantity": current_quantity,
+			"can_restock": false
+		}
+
+	var selected_product: Variant = _choose_restock_product(inventory, catalog)
+	if selected_product == null:
+		return {
+			"selected_product": null,
+			"max_quantity": current_quantity,
+			"can_restock": false
+		}
+
+	var max_quantity := _get_max_quantity_for_product(selected_product)
+	return {
+		"selected_product": selected_product,
+		"max_quantity": max_quantity,
+		"can_restock": current_quantity < max_quantity
+	}
 
 
 func _is_product_compatible(product: Variant) -> bool:

@@ -73,14 +73,8 @@ func _calculate_phase() -> StringName:
 		return &"unpack_boxes"
 
 	for shelf in shelves:
-		if bool(shelf.call("needs_stock", catalog)):
-			var localized_shelf_name := String(shelf.call("get_display_name"))
-			var prompt: String = String(shelf.call("get_interaction_prompt", player_inventory, catalog))
-			var fully_stocked_prompt := LocalizationManager.text(&"prompt.shelf.fully_stocked", {"shelf": localized_shelf_name})
-			var empty_prompt := LocalizationManager.text(&"prompt.shelf.empty", {"shelf": localized_shelf_name})
-			var stocked_prompt := LocalizationManager.text(&"prompt.shelf.stocked_units", {"shelf": localized_shelf_name, "quantity": shelf.get("current_quantity")})
-			if prompt != fully_stocked_prompt and prompt != empty_prompt and prompt != stocked_prompt:
-				return &"restock_shelves"
+		if bool(shelf.call("needs_stock", catalog)) and bool(shelf.call("can_restock_from_inventory", player_inventory, catalog)):
+			return &"restock_shelves"
 
 	return &"morning_complete"
 
