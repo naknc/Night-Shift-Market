@@ -3,8 +3,8 @@ class_name GameRoot
 
 const PLAYER_SCENE: PackedScene = preload("res://scenes/prefabs/player/player.tscn")
 const HUD_SCENE: PackedScene = preload("res://scenes/prefabs/ui/game_hud.tscn")
-const SHELF_SCENE: PackedScene = preload("res://scenes/prefabs/world/stock_shelf.tscn")
-const SAVE_DEBOUNCE_SECONDS: float = 1.25
+const SAVE_COORDINATOR_SCRIPT: Script = preload("res://scripts/game/coordinators/game_save_coordinator.gd")
+const WORLD_BUILDER_SCRIPT: Script = preload("res://scripts/game/builders/market_world_builder.gd")
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var interactable_root: Node3D = $InteractableRoot
@@ -25,9 +25,8 @@ var _is_runtime_ready: bool = false
 var _current_day: int = 1
 var _current_phase_text: String = ""
 var _carried_label: String = ""
-var _save_dirty: bool = false
-var _is_applying_save_data: bool = false
-var _save_timer: Timer = null
+var _save_coordinator: Node = null
+var _world_builder: RefCounted = WORLD_BUILDER_SCRIPT.new()
 
 
 func _ready() -> void:
@@ -35,6 +34,8 @@ func _ready() -> void:
 	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_runtime()
 	_is_runtime_ready = true
+	if _save_coordinator != null:
+		_save_coordinator.is_runtime_ready = true
 
 	if _pending_save_data.is_empty():
 		_apply_save_data(SaveManager.get_save_data())
@@ -45,7 +46,8 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
 		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
-	_flush_pending_save()
+	if _save_coordinator != null:
+		_save_coordinator.flush_pending_save()
 
 
 func configure_from_save(save_data: Dictionary) -> void:
@@ -113,66 +115,17 @@ func try_restock_shelf(shelf: Node) -> void:
 
 
 func _build_runtime() -> void:
-	_ensure_save_timer()
 	_build_world_shell()
 	_build_systems()
 	_build_player_and_hud()
+	_build_coordinators()
 	_connect_runtime_signals()
 
 
 func _build_world_shell() -> void:
-	if world_root.get_child_count() > 0:
-		return
-
-	var environment := WorldEnvironment.new()
-	environment.name = "WorldEnvironment"
-	environment.environment = _create_environment()
-	world_root.add_child(environment)
-
-	var floor_material := StandardMaterial3D.new()
-	floor_material.albedo_color = Color(0.35, 0.29, 0.24)
-	floor_material.roughness = 0.96
-
-	var wall_material := StandardMaterial3D.new()
-	wall_material.albedo_color = Color(0.88, 0.80, 0.68)
-	wall_material.roughness = 0.92
-
-	var accent_material := StandardMaterial3D.new()
-	accent_material.albedo_color = Color(0.55, 0.37, 0.22)
-	accent_material.roughness = 0.84
-
-	world_root.add_child(_build_box(Vector3(0.0, -0.05, 0.0), Vector3(28.0, 0.1, 22.0), floor_material, "Floor"))
-	world_root.add_child(_build_box(Vector3(0.0, 3.1, -10.8), Vector3(18.0, 6.2, 0.25), wall_material, "BackWall"))
-	world_root.add_child(_build_box(Vector3(-9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "LeftWall"))
-	world_root.add_child(_build_box(Vector3(9.0, 3.1, 0.0), Vector3(0.25, 6.2, 22.0), wall_material, "RightWall"))
-	world_root.add_child(_build_box(Vector3(-2.8, 3.1, 10.8), Vector3(6.0, 6.2, 0.25), wall_material, "FrontWallLeft"))
-	world_root.add_child(_build_box(Vector3(5.4, 3.1, 10.8), Vector3(7.2, 6.2, 0.25), wall_material, "FrontWallRight"))
-	world_root.add_child(_build_box(Vector3(-5.8, 1.5, 5.6), Vector3(2.0, 3.0, 4.0), accent_material, "StorageDivider"))
-	world_root.add_child(_build_box(Vector3(0.0, 3.4, 0.0), Vector3(18.0, 0.18, 22.0), wall_material, "Ceiling"))
-	world_root.add_child(_build_box(Vector3(0.0, 0.7, 6.5), Vector3(4.0, 1.4, 1.2), accent_material, "CheckoutCounter"))
-
-	var lane_marker := MeshInstance3D.new()
-	lane_marker.name = "LoadingLane"
-	var lane_mesh := PlaneMesh.new()
-	lane_mesh.size = Vector2(8.0, 6.0)
-	lane_marker.mesh = lane_mesh
-	lane_marker.position = Vector3(12.0, 0.02, -8.0)
-	lane_marker.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
-	var lane_material := StandardMaterial3D.new()
-	lane_material.albedo_color = Color(0.17, 0.17, 0.19)
-	lane_material.roughness = 0.98
-	lane_marker.material_override = lane_material
-	world_root.add_child(lane_marker)
-
-	storage_zone = load("res://scripts/game/world/storage_zone.gd").new()
-	storage_zone.name = "StorageZone"
-	storage_zone.set("zone_name", "Backroom Storage")
-	storage_zone.set("half_extents", Vector3(2.7, 1.5, 2.5))
-	storage_zone.position = Vector3(-5.7, 0.0, 5.8)
-	world_root.add_child(storage_zone)
-
-	_build_shelves()
-	_build_lighting()
+	var world_context: Dictionary = _world_builder.build(world_root, interactable_root)
+	storage_zone = world_context.get("storage_zone") as Node3D
+	shelves = world_context.get("shelves", [])
 
 
 func _build_systems() -> void:
@@ -206,79 +159,14 @@ func _build_player_and_hud() -> void:
 	ui_layer.add_child(hud)
 
 
-func _build_shelves() -> void:
-	if not shelves.is_empty():
+func _build_coordinators() -> void:
+	if _save_coordinator != null:
 		return
-
-	var shelf_configs := [
-		{
-			"shelf_id": "drink_front",
-			"shelf_label": "Drink Cooler",
-			"shelf_label_key": "name.shelf.drink_front",
-			"shelf_type": "drink_shelf",
-			"accepted_categories": ["drink"],
-			"capacity_units": 14,
-			"position": Vector3(-2.4, 0.0, 0.6)
-		},
-		{
-			"shelf_id": "snack_mid",
-			"shelf_label": "Snack Wall",
-			"shelf_label_key": "name.shelf.snack_mid",
-			"shelf_type": "snack_shelf",
-			"accepted_categories": ["snack"],
-			"capacity_units": 16,
-			"position": Vector3(0.0, 0.0, -0.6)
-		},
-		{
-			"shelf_id": "fruit_corner",
-			"shelf_label": "Produce Stand",
-			"shelf_label_key": "name.shelf.fruit_corner",
-			"shelf_type": "fruit_shelf",
-			"accepted_categories": ["fruit"],
-			"capacity_units": 14,
-			"position": Vector3(2.5, 0.0, 0.8)
-		}
-	]
-
-	for config in shelf_configs:
-		var shelf := SHELF_SCENE.instantiate()
-		if shelf == null:
-			continue
-		var shelf_position: Vector3 = config.get("position", Vector3.ZERO)
-		shelf.position = shelf_position
-		shelf.call("configure_from_data", config)
-		interactable_root.add_child(shelf)
-		shelves.append(shelf)
-
-
-func _build_lighting() -> void:
-	var sun_pivot := Node3D.new()
-	sun_pivot.name = "SunPivot"
-	sun_pivot.rotation_degrees = Vector3(-48.0, 12.0, 0.0)
-	world_root.add_child(sun_pivot)
-
-	var sun := DirectionalLight3D.new()
-	sun.name = "Sun"
-	sun.light_color = Color(1.0, 0.84, 0.62)
-	sun.light_energy = 1.4
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 36.0
-	sun_pivot.add_child(sun)
-
-	for light_position in [
-		Vector3(-3.6, 3.0, -2.4),
-		Vector3(0.0, 3.0, -2.4),
-		Vector3(3.6, 3.0, -2.4),
-		Vector3(-3.6, 3.0, 3.0),
-		Vector3(0.0, 3.0, 3.0),
-		Vector3(3.6, 3.0, 3.0)
-	]:
-		var omni := OmniLight3D.new()
-		omni.position = light_position
-		omni.light_color = Color(1.0, 0.69, 0.42)
-		omni.light_energy = 1.55
-		omni.omni_range = 11.0
-		world_root.add_child(omni)
+	_save_coordinator = SAVE_COORDINATOR_SCRIPT.new()
+	_save_coordinator.name = "GameSaveCoordinator"
+	add_child(_save_coordinator)
+	_save_coordinator.configure(player, player_inventory, shelves, delivery_manager, morning_shift_manager)
+	_save_coordinator.current_day = _current_day
 
 
 func _connect_runtime_signals() -> void:
@@ -320,7 +208,9 @@ func _connect_runtime_signals() -> void:
 
 
 func _apply_save_data(save_data: Dictionary) -> void:
-	_is_applying_save_data = true
+	if _save_coordinator != null:
+		_save_coordinator.is_applying_save_data = true
+
 	var inventories := save_data.get("inventories", {}) as Dictionary
 	player_inventory.call("load_from_data", inventories.get("player", []) as Array)
 
@@ -355,65 +245,23 @@ func _apply_save_data(save_data: Dictionary) -> void:
 
 	var progress := save_data.get("progress", {}) as Dictionary
 	_current_day = int(progress.get("current_day", 1))
+	if _save_coordinator != null:
+		_save_coordinator.current_day = _current_day
 
 	morning_shift_manager.call("load_state", save_data.get("morning_shift", {}) as Dictionary)
 	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
 	_refresh_inventory_hud()
 	_refresh_status_hud()
-	_is_applying_save_data = false
+
+	if _save_coordinator != null:
+		_save_coordinator.is_applying_save_data = false
 
 
 func _request_save(immediate: bool = false) -> void:
-	if _is_applying_save_data:
+	if _save_coordinator == null:
 		return
-	_save_dirty = true
-	if immediate:
-		_flush_pending_save()
-		return
-	_ensure_save_timer()
-	_save_timer.start(SAVE_DEBOUNCE_SECONDS)
-
-
-func _flush_pending_save() -> void:
-	if not _save_dirty or not _is_runtime_ready:
-		return
-	_save_dirty = false
-	if _save_timer != null and _save_timer.time_left > 0.0:
-		_save_timer.stop()
-	SaveManager.write_game_data(_build_save_data_snapshot())
-
-
-func _build_save_data_snapshot() -> Dictionary:
-	var save_data := SaveManager.get_save_data()
-	var progress := save_data.get("progress", {}) as Dictionary
-	progress["current_day"] = _current_day
-	progress["has_started"] = true
-	save_data["progress"] = progress
-
-	save_data["player"] = player.call("serialize_state")
-	save_data["inventories"] = {
-		"player": player_inventory.call("serialize")
-	}
-
-	var serialized_shelves: Array[Dictionary] = []
-	for shelf in shelves:
-		serialized_shelves.append(shelf.call("serialize_state"))
-	save_data["shelves"] = serialized_shelves
-	save_data["delivery"] = delivery_manager.call("serialize_state")
-	save_data["morning_shift"] = morning_shift_manager.call("serialize_state")
-	save_data["world"] = {"scene_id": "morning_delivery"}
-	return save_data
-
-
-func _ensure_save_timer() -> void:
-	if _save_timer != null:
-		return
-	_save_timer = Timer.new()
-	_save_timer.name = "SaveDebounceTimer"
-	_save_timer.one_shot = true
-	_save_timer.process_callback = Timer.TIMER_PROCESS_IDLE
-	_save_timer.timeout.connect(_flush_pending_save)
-	add_child(_save_timer)
+	_save_coordinator.current_day = _current_day
+	_save_coordinator.request_save(immediate)
 
 
 func _refresh_inventory_hud() -> void:
@@ -459,47 +307,9 @@ func _phase_to_text(phase: StringName) -> String:
 			return LocalizationManager.text(&"phase.morning_complete")
 
 
-func _build_box(position_value: Vector3, size_value: Vector3, material: Material, node_name: String) -> MeshInstance3D:
-	var box := MeshInstance3D.new()
-	box.name = node_name
-	box.position = position_value
-	var box_mesh := BoxMesh.new()
-	box_mesh.size = size_value
-	box.mesh = box_mesh
-	box.material_override = material
-	return box
-
-
-func _create_environment() -> Environment:
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_SKY
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.8
-	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
-	environment.adjustment_enabled = true
-	environment.adjustment_brightness = 1.05
-
-	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.06, 0.08, 0.16)
-	sky_material.sky_horizon_color = Color(0.98, 0.55, 0.28)
-	sky_material.ground_bottom_color = Color(0.09, 0.05, 0.04)
-	sky_material.ground_horizon_color = Color(0.28, 0.15, 0.10)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_material
-	environment.sky = sky
-	return environment
-
-
 func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
 	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
 	if morning_shift_manager != null:
 		morning_shift_manager.call("_emit_objective")
 	_refresh_inventory_hud()
 	_refresh_status_hud()
-
-
-func _notification(what: int) -> void:
-	match what:
-		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_CLOSE_REQUEST:
-			_flush_pending_save()
