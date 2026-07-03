@@ -48,7 +48,7 @@ func load_state(data: Dictionary) -> void:
 
 
 func _refresh_phase(_arg_a: Variant = null, _arg_b: Variant = null) -> void:
-	var next_phase := _calculate_phase()
+	var next_phase: StringName = _calculate_phase()
 	if next_phase != _phase:
 		_phase = next_phase
 		phase_changed.emit(_phase)
@@ -59,23 +59,27 @@ func _calculate_phase() -> StringName:
 	if delivery_manager == null or player_inventory == null:
 		return &"truck_arrival"
 
-	var catalog := _find_catalog()
+	var catalog: Node = _find_catalog()
 	if catalog == null:
 		return _phase
 
-	var active_boxes := delivery_manager.get_active_boxes()
-	if delivery_manager.get_state() == &"arriving":
+	var active_boxes: Array = delivery_manager.call("get_active_boxes")
+	if StringName(delivery_manager.call("get_state")) == &"arriving":
 		return &"truck_arrival"
 
 	if not active_boxes.is_empty():
-		if not delivery_manager.are_all_boxes_in_storage():
+		if not bool(delivery_manager.call("are_all_boxes_in_storage")):
 			return &"move_boxes_to_storage"
 		return &"unpack_boxes"
 
 	for shelf in shelves:
-		if shelf.needs_stock(catalog) and shelf.get_interaction_prompt(player_inventory, catalog) != "%s fully stocked" % shelf.shelf_label:
-			var prompt := shelf.get_interaction_prompt(player_inventory, catalog)
-			if prompt.contains("Tap to stock"):
+		if bool(shelf.call("needs_stock", catalog)):
+			var localized_shelf_name := String(shelf.call("get_display_name"))
+			var prompt: String = String(shelf.call("get_interaction_prompt", player_inventory, catalog))
+			var fully_stocked_prompt := LocalizationManager.text(&"prompt.shelf.fully_stocked", {"shelf": localized_shelf_name})
+			var empty_prompt := LocalizationManager.text(&"prompt.shelf.empty", {"shelf": localized_shelf_name})
+			var stocked_prompt := LocalizationManager.text(&"prompt.shelf.stocked_units", {"shelf": localized_shelf_name, "quantity": shelf.get("current_quantity")})
+			if prompt != fully_stocked_prompt and prompt != empty_prompt and prompt != stocked_prompt:
 				return &"restock_shelves"
 
 	return &"morning_complete"
@@ -84,20 +88,20 @@ func _calculate_phase() -> StringName:
 func _emit_objective() -> void:
 	match _phase:
 		&"truck_arrival":
-			objective_changed.emit("Morning Delivery", "Wait for the delivery truck to finish parking at the loading lane.")
+			objective_changed.emit(LocalizationManager.text(&"objective.truck_arrival.title"), LocalizationManager.text(&"objective.truck_arrival.detail"))
 		&"move_boxes_to_storage":
-			objective_changed.emit("Unload Boxes", "Carry every delivery box from the truck into the backroom storage zone.")
+			objective_changed.emit(LocalizationManager.text(&"objective.move_boxes_to_storage.title"), LocalizationManager.text(&"objective.move_boxes_to_storage.detail"))
 		&"unpack_boxes":
-			objective_changed.emit("Unpack Deliveries", "Open each box while it is inside storage to transfer products into player stock inventory.")
+			objective_changed.emit(LocalizationManager.text(&"objective.unpack_boxes.title"), LocalizationManager.text(&"objective.unpack_boxes.detail"))
 		&"restock_shelves":
-			objective_changed.emit("Restock Shelves", "Walk to an empty shelf and tap interact to move matching products from inventory onto the shelf.")
+			objective_changed.emit(LocalizationManager.text(&"objective.restock_shelves.title"), LocalizationManager.text(&"objective.restock_shelves.detail"))
 		_:
-			objective_changed.emit("Store Ready", "Morning prep is complete. Shelves are stocked and the delivery truck has cleared the lane.")
+			objective_changed.emit(LocalizationManager.text(&"objective.morning_complete.title"), LocalizationManager.text(&"objective.morning_complete.detail"))
 
 
 func _find_catalog() -> Node:
 	var root_node := get_tree().current_scene
 	if root_node == null:
 		return null
-	var catalog_node := root_node.find_child("ProductCatalog", true, false)
+	var catalog_node: Node = root_node.find_child("ProductCatalog", true, false)
 	return catalog_node

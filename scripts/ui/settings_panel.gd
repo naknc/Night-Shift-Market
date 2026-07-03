@@ -7,12 +7,27 @@ var _volume_slider: HSlider
 var _sensitivity_slider: HSlider
 var _invert_y_toggle: CheckButton
 var _fps_toggle: CheckButton
+var _language_option: OptionButton
+var _title_label: Label
+var _subtitle_label: Label
+var _language_label: Label
+var _master_volume_label: Label
+var _sensitivity_label: Label
+var _reset_button: Button
+var _close_button: Button
+var _is_loading_language: bool = false
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_interface()
 	_load_current_values()
+	_apply_localized_text()
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -24,6 +39,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _build_interface() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 
 	var dim := ColorRect.new()
 	dim.color = Color(0.04, 0.03, 0.02, 0.74)
@@ -50,41 +66,43 @@ func _build_interface() -> void:
 	column.add_theme_constant_override("separation", 18)
 	margin.add_child(column)
 
-	var title := Label.new()
-	title.text = "Settings"
-	title.add_theme_font_size_override("font_size", 34)
-	title.add_theme_color_override("font_color", Color(1.0, 0.94, 0.86))
-	column.add_child(title)
+	_title_label = Label.new()
+	_title_label.add_theme_font_size_override("font_size", 34)
+	_title_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.86))
+	column.add_child(_title_label)
 
-	var subtitle := Label.new()
-	subtitle.text = "These preferences persist immediately and are shared across every session."
-	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	subtitle.add_theme_font_size_override("font_size", 16)
-	subtitle.add_theme_color_override("font_color", Color(0.95, 0.84, 0.72))
-	column.add_child(subtitle)
+	_subtitle_label = Label.new()
+	_subtitle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_subtitle_label.add_theme_font_size_override("font_size", 16)
+	_subtitle_label.add_theme_color_override("font_color", Color(0.95, 0.84, 0.72))
+	column.add_child(_subtitle_label)
 
-	column.add_child(_build_slider_row("Master Volume", -30.0, 6.0, 0.5, "_volume_slider"))
-	column.add_child(_build_slider_row("Look Sensitivity", 0.05, 1.0, 0.01, "_sensitivity_slider"))
-	column.add_child(_build_toggle_row("Invert Vertical Look", "_invert_y_toggle"))
-	column.add_child(_build_toggle_row("Show FPS Overlay", "_fps_toggle"))
+	column.add_child(_build_language_row())
+	column.add_child(_build_slider_row("_master_volume_label", "_volume_slider", -30.0, 6.0, 0.5))
+	column.add_child(_build_slider_row("_sensitivity_label", "_sensitivity_slider", 0.05, 1.0, 0.01))
+	column.add_child(_build_toggle_row("_invert_y_toggle"))
+	column.add_child(_build_toggle_row("_fps_toggle"))
 
 	var button_row := HBoxContainer.new()
 	button_row.alignment = BoxContainer.ALIGNMENT_END
 	button_row.add_theme_constant_override("separation", 12)
 	column.add_child(button_row)
 
-	var reset_button := _build_button("Restore Defaults", Color(0.55, 0.33, 0.16), Color(1.0, 0.95, 0.88))
-	reset_button.pressed.connect(_on_restore_defaults_pressed)
-	button_row.add_child(reset_button)
+	_reset_button = _build_button("", Color(0.55, 0.33, 0.16), Color(1.0, 0.95, 0.88))
+	_reset_button.pressed.connect(_on_restore_defaults_pressed)
+	_attach_button_feedback(_reset_button)
+	button_row.add_child(_reset_button)
 
-	var close_button := _build_button("Close", Color(0.86, 0.72, 0.56), Color(0.18, 0.10, 0.05))
-	close_button.pressed.connect(_on_close_pressed)
-	button_row.add_child(close_button)
+	_close_button = _build_button("", Color(0.86, 0.72, 0.56), Color(0.18, 0.10, 0.05))
+	_close_button.pressed.connect(_on_close_pressed)
+	_attach_button_feedback(_close_button)
+	button_row.add_child(_close_button)
 
 	_volume_slider.value_changed.connect(_on_master_volume_changed)
 	_sensitivity_slider.value_changed.connect(_on_sensitivity_changed)
 	_invert_y_toggle.toggled.connect(_on_invert_y_toggled)
 	_fps_toggle.toggled.connect(_on_fps_toggled)
+	_language_option.item_selected.connect(_on_language_selected)
 
 
 func _load_current_values() -> void:
@@ -92,14 +110,29 @@ func _load_current_values() -> void:
 	_sensitivity_slider.value = InputManager.get_look_sensitivity()
 	_invert_y_toggle.button_pressed = InputManager.is_invert_y_enabled()
 	_fps_toggle.button_pressed = PerformanceManager.is_show_fps_enabled()
+	_refresh_language_options()
 
 
-func _build_slider_row(title_text: String, min_value: float, max_value: float, step: float, property_name: String) -> Control:
+func _build_language_row() -> Control:
+	var wrapper := VBoxContainer.new()
+	wrapper.add_theme_constant_override("separation", 8)
+
+	_language_label = Label.new()
+	_language_label.add_theme_font_size_override("font_size", 18)
+	_language_label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.84))
+	wrapper.add_child(_language_label)
+
+	_language_option = OptionButton.new()
+	_language_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrapper.add_child(_language_option)
+	return wrapper
+
+
+func _build_slider_row(label_property_name: String, slider_property_name: String, min_value: float, max_value: float, step: float) -> Control:
 	var wrapper := VBoxContainer.new()
 	wrapper.add_theme_constant_override("separation", 8)
 
 	var label := Label.new()
-	label.text = title_text
 	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.84))
 	wrapper.add_child(label)
@@ -111,13 +144,13 @@ func _build_slider_row(title_text: String, min_value: float, max_value: float, s
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wrapper.add_child(slider)
 
-	set(property_name, slider)
+	set(label_property_name, label)
+	set(slider_property_name, slider)
 	return wrapper
 
 
-func _build_toggle_row(title_text: String, property_name: String) -> Control:
+func _build_toggle_row(property_name: String) -> Control:
 	var toggle := CheckButton.new()
-	toggle.text = title_text
 	toggle.add_theme_font_size_override("font_size", 18)
 	toggle.add_theme_color_override("font_color", Color(1.0, 0.93, 0.84))
 	set(property_name, toggle)
@@ -166,6 +199,42 @@ func _build_button_style(color: Color) -> StyleBoxFlat:
 	return style
 
 
+func _attach_button_feedback(button: BaseButton) -> void:
+	button.pivot_offset = button.size * 0.5
+	button.resized.connect(func() -> void:
+		button.pivot_offset = button.size * 0.5
+	)
+	button.button_down.connect(func() -> void:
+		_animate_button_state(button, true)
+	)
+	button.button_up.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.pressed.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.mouse_exited.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+
+
+func _animate_button_state(button: Control, is_pressed: bool) -> void:
+	if button == null:
+		return
+	if not button.has_meta("rest_position"):
+		button.set_meta("rest_position", button.position)
+	var target_scale := Vector2.ONE
+	var target_position := button.get_meta("rest_position") as Vector2
+	if is_pressed:
+		target_scale = Vector2(0.975, 0.975)
+		target_position = (button.get_meta("rest_position") as Vector2) + Vector2(0.0, 4.0)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", target_scale, 0.08)
+	tween.parallel().tween_property(button, "position", target_position, 0.08)
+
+
 func _on_master_volume_changed(value: float) -> void:
 	AudioManager.set_master_volume_db(value)
 
@@ -184,6 +253,7 @@ func _on_fps_toggled(enabled: bool) -> void:
 
 func _on_restore_defaults_pressed() -> void:
 	SaveManager.reset_settings_to_default()
+	LocalizationManager.apply_saved_locale()
 	AudioManager.initialize_from_settings()
 	InputManager.apply_saved_settings()
 	PerformanceManager.apply_startup_profile()
@@ -193,3 +263,60 @@ func _on_restore_defaults_pressed() -> void:
 func _on_close_pressed() -> void:
 	closed.emit()
 	queue_free()
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_apply_localized_text()
+	_refresh_language_options()
+
+
+func _apply_localized_text() -> void:
+	LocalizationManager.apply_control_locale(self)
+	_title_label.text = LocalizationManager.text(&"settings.title")
+	_subtitle_label.text = LocalizationManager.text(&"settings.subtitle")
+	_language_label.text = LocalizationManager.text(&"settings.language")
+	_master_volume_label.text = LocalizationManager.text(&"settings.master_volume")
+	_sensitivity_label.text = LocalizationManager.text(&"settings.look_sensitivity")
+	_invert_y_toggle.text = LocalizationManager.text(&"settings.invert_vertical_look")
+	_fps_toggle.text = LocalizationManager.text(&"settings.show_fps_overlay")
+	_reset_button.text = LocalizationManager.text(&"settings.restore_defaults")
+	_close_button.text = LocalizationManager.text(&"settings.close")
+
+
+func _refresh_language_options() -> void:
+	if _language_option == null:
+		return
+
+	_is_loading_language = true
+	_language_option.clear()
+
+	var system_locale := LocalizationManager.get_system_locale()
+	var system_label := LocalizationManager.text(
+		&"settings.system_default",
+		{"language": LocalizationManager.get_locale_display_name(system_locale)}
+	)
+	_language_option.add_item(system_label)
+	_language_option.set_item_metadata(0, String(LocalizationManager.DEFAULT_LANGUAGE_PREFERENCE))
+
+	var selected_index := 0
+	var current_preference := LocalizationManager.get_language_preference()
+	var locales := LocalizationManager.get_supported_locales()
+	for entry_index in locales.size():
+		var entry: Dictionary = locales[entry_index]
+		var locale_code := StringName(String(entry.get("code", "")))
+		var display_name := String(entry.get("native_name", entry.get("display_name", String(locale_code))))
+		var option_index := entry_index + 1
+		_language_option.add_item(display_name)
+		_language_option.set_item_metadata(option_index, String(locale_code))
+		if current_preference == locale_code:
+			selected_index = option_index
+
+	_language_option.select(selected_index)
+	_is_loading_language = false
+
+
+func _on_language_selected(index: int) -> void:
+	if _is_loading_language:
+		return
+	var metadata: Variant = _language_option.get_item_metadata(index)
+	LocalizationManager.set_language_preference(StringName(String(metadata)))

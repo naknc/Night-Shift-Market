@@ -13,6 +13,12 @@ var _look_pointer_id: int = -1
 var _move_origin: Vector2 = Vector2.ZERO
 var _move_value: Vector2 = Vector2.ZERO
 var _look_last_position: Vector2 = Vector2.ZERO
+var _mouse_move_active: bool = false
+var _mouse_look_active: bool = false
+var _current_day: int = 1
+var _current_phase_text: String = ""
+var _current_carried_label: String = ""
+var _cached_inventory_lines: PackedStringArray = PackedStringArray()
 
 var _objective_title: Label
 var _objective_detail: Label
@@ -29,8 +35,15 @@ var _grab_button: Button
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_interface()
 	_refresh_joystick_visual()
+	_apply_localized_text()
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func _input(event: InputEvent) -> void:
@@ -38,6 +51,10 @@ func _input(event: InputEvent) -> void:
 		_handle_touch(event as InputEventScreenTouch)
 	elif event is InputEventScreenDrag:
 		_handle_drag(event as InputEventScreenDrag)
+	elif event is InputEventMouseButton:
+		_handle_mouse_button(event as InputEventMouseButton)
+	elif event is InputEventMouseMotion:
+		_handle_mouse_motion(event as InputEventMouseMotion)
 
 
 func set_objective(title_text: String, detail_text: String) -> void:
@@ -51,17 +68,31 @@ func set_prompt(text_value: String) -> void:
 
 
 func set_status(day_number: int, phase_text: String, carried_label: String) -> void:
-	var carry_text := "Hands Free"
+	_current_day = day_number
+	_current_phase_text = phase_text
+	_current_carried_label = carried_label
+	var carry_text := LocalizationManager.text(&"hud.hands_free")
 	if not carried_label.is_empty():
-		carry_text = "Carrying: %s" % carried_label
-	_status_label.text = "Day %d  |  %s  |  %s" % [day_number, phase_text, carry_text]
+		carry_text = carried_label
+	_status_label.text = LocalizationManager.text(
+		&"hud.status_format",
+		{
+			"day": day_number,
+			"phase": phase_text,
+			"carry": carry_text
+		}
+	)
 
 
 func set_inventory_lines(lines: PackedStringArray) -> void:
+	_cached_inventory_lines = lines
 	if lines.is_empty():
-		_inventory_label.text = "Inventory\nNo stock unpacked yet."
+		_inventory_label.text = "%s\n%s" % [
+			LocalizationManager.text(&"hud.inventory"),
+			LocalizationManager.text(&"hud.inventory_empty")
+		]
 		return
-	_inventory_label.text = "Inventory\n%s" % "\n".join(lines)
+	_inventory_label.text = "%s\n%s" % [LocalizationManager.text(&"hud.inventory"), "\n".join(lines)]
 
 
 func show_notification(text_value: String) -> void:
@@ -212,21 +243,26 @@ func _build_interface() -> void:
 	button_column.add_theme_constant_override("separation", 12)
 	overlay.add_child(button_column)
 
-	_interact_button = _make_action_button("Interact")
+	_interact_button = _make_action_button("")
 	_interact_button.pressed.connect(func() -> void:
 		interact_pressed.emit()
 	)
+	_attach_button_feedback(_interact_button)
 	button_column.add_child(_interact_button)
 
-	_grab_button = _make_action_button("Carry / Drop")
+	_grab_button = _make_action_button("")
 	_grab_button.pressed.connect(func() -> void:
 		grab_pressed.emit()
 	)
+	_attach_button_feedback(_grab_button)
 	button_column.add_child(_grab_button)
 
-	set_status(1, "Morning Delivery", "")
+	set_status(1, LocalizationManager.text(&"phase.truck_arrival"), "")
 	set_inventory_lines(PackedStringArray())
-	set_objective("Morning Delivery", "Wait for today’s truck to arrive.")
+	set_objective(
+		LocalizationManager.text(&"objective.truck_arrival.title"),
+		LocalizationManager.text(&"objective.truck_arrival.detail")
+	)
 
 
 func _handle_touch(event: InputEventScreenTouch) -> void:
@@ -261,6 +297,41 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 		var relative := event.position - _look_last_position
 		_look_last_position = event.position
 		look_input_emitted.emit(relative * 0.75)
+
+
+func _handle_mouse_button(event: InputEventMouseButton) -> void:
+	if event.button_index != MOUSE_BUTTON_LEFT:
+		return
+
+	var position_value := event.position
+	if event.pressed:
+		if _is_over_action_buttons(position_value):
+			return
+		if position_value.x <= size.x * 0.42:
+			_mouse_move_active = true
+			_move_origin = position_value
+			_update_move_value(position_value)
+			return
+		_mouse_look_active = true
+		_look_last_position = position_value
+		return
+
+	if _mouse_move_active:
+		_mouse_move_active = false
+		_move_value = Vector2.ZERO
+		move_vector_changed.emit(Vector2.ZERO)
+		_refresh_joystick_visual()
+	if _mouse_look_active:
+		_mouse_look_active = false
+
+
+func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
+	if _mouse_move_active:
+		_update_move_value(event.position)
+		return
+
+	if _mouse_look_active:
+		look_input_emitted.emit(event.relative * 0.75)
 
 
 func _update_move_value(pointer_position: Vector2) -> void:
@@ -300,6 +371,58 @@ func _make_action_button(text_value: String) -> Button:
 	button.add_theme_stylebox_override("hover", _make_button_style(Color(1.0, 0.88, 0.66)))
 	button.add_theme_stylebox_override("pressed", _make_button_style(Color(0.88, 0.70, 0.43)))
 	return button
+
+
+func _attach_button_feedback(button: BaseButton) -> void:
+	button.pivot_offset = button.size * 0.5
+	button.resized.connect(func() -> void:
+		button.pivot_offset = button.size * 0.5
+	)
+	button.button_down.connect(func() -> void:
+		_animate_button_state(button, true)
+	)
+	button.button_up.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.pressed.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.mouse_exited.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+
+
+func _animate_button_state(button: Control, is_pressed: bool) -> void:
+	if button == null:
+		return
+	var target_scale := Vector2.ONE
+	var target_position := button.get_meta("rest_position", button.position) as Vector2
+	if not button.has_meta("rest_position"):
+		button.set_meta("rest_position", button.position)
+	if is_pressed:
+		target_scale = Vector2(0.97, 0.97)
+		target_position = (button.get_meta("rest_position") as Vector2) + Vector2(0.0, 4.0)
+	else:
+		target_position = button.get_meta("rest_position") as Vector2
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", target_scale, 0.08)
+	tween.parallel().tween_property(button, "position", target_position, 0.08)
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_apply_localized_text()
+
+
+func _apply_localized_text() -> void:
+	LocalizationManager.apply_control_locale(self)
+	if _interact_button != null:
+		_interact_button.text = LocalizationManager.text(&"hud.interact")
+	if _grab_button != null:
+		_grab_button.text = LocalizationManager.text(&"hud.carry_drop")
+	set_inventory_lines(_cached_inventory_lines)
+	set_status(_current_day, _current_phase_text, _current_carried_label)
 
 
 func _make_panel_style(color: Color) -> StyleBoxFlat:

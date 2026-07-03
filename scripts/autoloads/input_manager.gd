@@ -34,22 +34,32 @@ func apply_saved_settings() -> void:
 
 
 func get_move_vector() -> Vector2:
+	if not _initialized:
+		initialize()
 	return Input.get_vector(ACTION_MOVE_LEFT, ACTION_MOVE_RIGHT, ACTION_MOVE_FORWARD, ACTION_MOVE_BACK)
 
 
 func is_run_pressed() -> bool:
+	if not _initialized:
+		initialize()
 	return Input.is_action_pressed(ACTION_RUN)
 
 
 func is_interact_pressed() -> bool:
+	if not _initialized:
+		initialize()
 	return Input.is_action_just_pressed(ACTION_INTERACT)
 
 
 func is_grab_pressed() -> bool:
+	if not _initialized:
+		initialize()
 	return Input.is_action_pressed(ACTION_GRAB)
 
 
 func is_pause_pressed() -> bool:
+	if not _initialized:
+		initialize()
 	return Input.is_action_just_pressed(ACTION_PAUSE)
 
 

@@ -7,6 +7,14 @@ var _products: Dictionary = {}
 func _ready() -> void:
 	if _products.is_empty():
 		_register_default_products()
+	if not LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.connect(_on_locale_changed)
+	_refresh_localized_content()
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func get_product(product_id: StringName) -> ProductDefinition:
@@ -76,7 +84,8 @@ func _register_default_products() -> void:
 			1,
 			Color(0.35, 0.78, 0.95),
 			Vector3(0.26, 0.46, 0.26)
-		)
+		),
+		&"product.sparkling_water.name"
 	)
 	_add_product(
 		_make_product(
@@ -98,7 +107,8 @@ func _register_default_products() -> void:
 			1,
 			Color(0.96, 0.54, 0.19),
 			Vector3(0.22, 0.34, 0.22)
-		)
+		),
+		&"product.orange_soda.name"
 	)
 	_add_product(
 		_make_product(
@@ -120,7 +130,8 @@ func _register_default_products() -> void:
 			1,
 			Color(0.94, 0.82, 0.48),
 			Vector3(0.34, 0.42, 0.14)
-		)
+		),
+		&"product.sea_salt_chips.name"
 	)
 	_add_product(
 		_make_product(
@@ -142,7 +153,8 @@ func _register_default_products() -> void:
 			1,
 			Color(0.72, 0.44, 0.20),
 			Vector3(0.28, 0.10, 0.12)
-		)
+		),
+		&"product.granola_bar.name"
 	)
 	_add_product(
 		_make_product(
@@ -164,7 +176,8 @@ func _register_default_products() -> void:
 			1,
 			Color(0.48, 0.78, 0.28),
 			Vector3(0.18, 0.18, 0.18)
-		)
+		),
+		&"product.green_apple.name"
 	)
 	_add_product(
 		_make_product(
@@ -186,11 +199,13 @@ func _register_default_products() -> void:
 			2,
 			Color(0.93, 0.49, 0.18),
 			Vector3(0.30, 0.26, 0.30)
-		)
+		),
+		&"product.clementine_pack.name"
 	)
 
 
-func _add_product(product: ProductDefinition) -> void:
+func _add_product(product: ProductDefinition, display_name_key: StringName) -> void:
+	product.set_meta("display_name_key", String(display_name_key))
 	_products[String(product.product_id)] = product
 
 
@@ -234,3 +249,15 @@ func _make_product(
 	product.display_color = display_color
 	product.display_scale = display_scale
 	return product
+
+
+func _refresh_localized_content() -> void:
+	for definition in _products.values():
+		var product := definition as ProductDefinition
+		var display_name_key := StringName(String(product.get_meta("display_name_key", "")))
+		if display_name_key != StringName():
+			product.display_name = LocalizationManager.text(display_name_key)
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_refresh_localized_content()

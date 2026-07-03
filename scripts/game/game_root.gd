@@ -22,11 +22,12 @@ var hud: Control
 var _pending_save_data: Dictionary = {}
 var _is_runtime_ready: bool = false
 var _current_day: int = 1
-var _current_phase_text: String = "Morning Delivery"
+var _current_phase_text: String = ""
 var _carried_label: String = ""
 
 
 func _ready() -> void:
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_runtime()
 	_is_runtime_ready = true
 
@@ -34,6 +35,11 @@ func _ready() -> void:
 		_apply_save_data(SaveManager.get_save_data())
 	else:
 		_apply_save_data(_pending_save_data)
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func configure_from_save(save_data: Dictionary) -> void:
@@ -50,16 +56,21 @@ func try_unpack_box(box: Node) -> void:
 	if box == null:
 		return
 	if not bool(box.call("is_inside_storage")):
-		_show_notification("Move the box into storage before unpacking it.")
+		_show_notification(LocalizationManager.text(&"notification.move_box_to_storage"))
 		return
 
 	var unpacked: Array = delivery_manager.call("process_box_unpack", box)
 	if unpacked.is_empty():
-		_show_notification("This box has already been unpacked.")
+		_show_notification(LocalizationManager.text(&"notification.box_already_unpacked"))
 		return
 
 	player_inventory.call("add_entries", unpacked)
-	_show_notification("%s unpacked into stock inventory." % String(box.get("display_name")))
+	_show_notification(
+		LocalizationManager.text(
+			&"notification.box_unpacked_to_inventory",
+			{"box": String(box.call("get_display_name"))}
+		)
+	)
 	_refresh_inventory_hud()
 	_request_save()
 
@@ -71,12 +82,26 @@ func try_restock_shelf(shelf: Node) -> void:
 	var result: Dictionary = shelf.call("restock_from_inventory", player_inventory, product_catalog)
 	var added_quantity := int(result.get("added_quantity", 0))
 	if added_quantity <= 0:
-		_show_notification("%s cannot be stocked from the current inventory." % String(shelf.get("shelf_label")))
+		_show_notification(
+			LocalizationManager.text(
+				&"notification.shelf_cannot_stock",
+				{"shelf": String(shelf.call("get_display_name"))}
+			)
+		)
 		return
 
 	var product: Variant = product_catalog.call("get_product", StringName(String(result.get("product_id", ""))))
 	var product_name := String(product.get("display_name")) if product != null else "product"
-	_show_notification("Stocked %s with %d %s." % [String(shelf.get("shelf_label")), added_quantity, product_name])
+	_show_notification(
+		LocalizationManager.text(
+			&"notification.shelf_stocked",
+			{
+				"shelf": String(shelf.call("get_display_name")),
+				"quantity": added_quantity,
+				"product": product_name
+			}
+		)
+	)
 	_refresh_inventory_hud()
 	_request_save()
 
@@ -182,6 +207,7 @@ func _build_shelves() -> void:
 		{
 			"shelf_id": "drink_front",
 			"shelf_label": "Drink Cooler",
+			"shelf_label_key": "name.shelf.drink_front",
 			"shelf_type": "drink_shelf",
 			"accepted_categories": ["drink"],
 			"capacity_units": 14,
@@ -190,6 +216,7 @@ func _build_shelves() -> void:
 		{
 			"shelf_id": "snack_mid",
 			"shelf_label": "Snack Wall",
+			"shelf_label_key": "name.shelf.snack_mid",
 			"shelf_type": "snack_shelf",
 			"accepted_categories": ["snack"],
 			"capacity_units": 16,
@@ -198,6 +225,7 @@ func _build_shelves() -> void:
 		{
 			"shelf_id": "fruit_corner",
 			"shelf_label": "Produce Stand",
+			"shelf_label_key": "name.shelf.fruit_corner",
 			"shelf_type": "fruit_shelf",
 			"accepted_categories": ["fruit"],
 			"capacity_units": 14,
@@ -280,7 +308,7 @@ func _connect_runtime_signals() -> void:
 
 	delivery_manager.connect("box_manifest_changed", Callable(self, "_request_save"))
 	delivery_manager.connect("all_boxes_unpacked", func() -> void:
-		_show_notification("All delivery boxes unpacked. Finish stocking the shelves.")
+		_show_notification(LocalizationManager.text(&"notification.all_boxes_unpacked"))
 	)
 
 
@@ -381,15 +409,15 @@ func _on_pause_requested() -> void:
 func _phase_to_text(phase: StringName) -> String:
 	match phase:
 		&"truck_arrival":
-			return "Truck Arrival"
+			return LocalizationManager.text(&"phase.truck_arrival")
 		&"move_boxes_to_storage":
-			return "Unload Boxes"
+			return LocalizationManager.text(&"phase.move_boxes_to_storage")
 		&"unpack_boxes":
-			return "Unpack Stock"
+			return LocalizationManager.text(&"phase.unpack_boxes")
 		&"restock_shelves":
-			return "Restock Shelves"
+			return LocalizationManager.text(&"phase.restock_shelves")
 		_:
-			return "Store Ready"
+			return LocalizationManager.text(&"phase.morning_complete")
 
 
 func _build_box(position_value: Vector3, size_value: Vector3, material: Material, node_name: String) -> MeshInstance3D:
@@ -422,3 +450,11 @@ func _create_environment() -> Environment:
 	sky.sky_material = sky_material
 	environment.sky = sky
 	return environment
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
+	if morning_shift_manager != null:
+		morning_shift_manager.call("_emit_objective")
+	_refresh_inventory_hud()
+	_refresh_status_hud()

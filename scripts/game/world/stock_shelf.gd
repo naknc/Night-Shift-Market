@@ -5,6 +5,7 @@ signal shelf_stock_changed(shelf_id: StringName, data: Dictionary)
 
 var shelf_id: StringName = &"shelf"
 var shelf_label: String = "Shelf"
+var shelf_label_key: StringName = &""
 var shelf_type: StringName = &"general_shelf"
 var accepted_categories: PackedStringArray = PackedStringArray()
 var capacity_units: int = 12
@@ -21,13 +22,20 @@ var _visual_ready: bool = false
 
 
 func _ready() -> void:
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_build_visuals()
 	_refresh_visual_state(null)
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func configure_from_data(data: Dictionary) -> void:
 	shelf_id = StringName(String(data.get("shelf_id", "shelf")))
 	shelf_label = String(data.get("shelf_label", "Shelf"))
+	shelf_label_key = StringName(String(data.get("shelf_label_key", "")))
 	shelf_type = StringName(String(data.get("shelf_type", "general_shelf")))
 	capacity_units = int(data.get("capacity_units", 12))
 
@@ -60,20 +68,30 @@ func serialize_state() -> Dictionary:
 
 func get_interaction_prompt(inventory: Node, catalog: Node) -> String:
 	var selected_product: Variant = _choose_restock_product(inventory, catalog)
+	var localized_shelf_label := get_display_name()
 	if selected_product == null:
 		if current_quantity > 0:
-			return "%s stocked: %d units" % [shelf_label, current_quantity]
-		return "%s is empty" % shelf_label
+			return LocalizationManager.text(&"prompt.shelf.stocked_units", {"shelf": localized_shelf_label, "quantity": current_quantity})
+		return LocalizationManager.text(&"prompt.shelf.empty", {"shelf": localized_shelf_label})
 
 	var max_quantity := _get_max_quantity_for_product(selected_product)
 	if current_quantity >= max_quantity:
-		return "%s fully stocked" % shelf_label
+		return LocalizationManager.text(&"prompt.shelf.fully_stocked", {"shelf": localized_shelf_label})
 
-	return "Tap to stock %s (%d/%d)" % [
-		String(selected_product.get("display_name")),
-		current_quantity,
-		max_quantity
-	]
+	return LocalizationManager.text(
+		&"prompt.shelf.tap_stock",
+		{
+			"product": String(selected_product.get("display_name")),
+			"current": current_quantity,
+			"maximum": max_quantity
+		}
+	)
+
+
+func get_display_name() -> String:
+	if shelf_label_key != StringName():
+		return LocalizationManager.text(shelf_label_key)
+	return shelf_label
 
 
 func restock_from_inventory(inventory: Node, catalog: Node) -> Dictionary:
@@ -222,11 +240,18 @@ func _refresh_visual_state(product: Variant) -> void:
 
 	if label != null:
 		if resolved_product == null and current_quantity <= 0:
-			label.text = "%s\nEmpty" % shelf_label
+			label.text = "%s\n%s" % [get_display_name(), LocalizationManager.text(&"label.shelf.empty")]
 		elif resolved_product != null:
-			label.text = "%s\n%s x%d" % [shelf_label, String(resolved_product.get("display_name")), current_quantity]
+			label.text = "%s\n%s x%d" % [get_display_name(), String(resolved_product.get("display_name")), current_quantity]
 		else:
-			label.text = "%s\nStocked x%d" % [shelf_label, current_quantity]
+			label.text = "%s\n%s" % [
+				get_display_name(),
+				LocalizationManager.text(&"label.shelf.stocked", {"quantity": current_quantity})
+			]
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_refresh_visual_state(null)
 
 
 func _make_mesh_box(position_value: Vector3, size_value: Vector3, material: Material) -> MeshInstance3D:

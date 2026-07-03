@@ -34,22 +34,24 @@ func start_bootstrap() -> void:
 	_main_scene_cache = null
 	_state = AppState.BOOTSTRAPPING
 
-	boot_progress_changed.emit(0.05, "Preparing saved data")
 	SaveManager.initialize()
-	boot_progress_changed.emit(0.18, "Registering input map")
+	LocalizationManager.initialize()
+	boot_progress_changed.emit(0.05, LocalizationManager.text(&"bootstrap.step.saved_data"))
+	boot_progress_changed.emit(0.12, LocalizationManager.text(&"bootstrap.step.localization"))
+	boot_progress_changed.emit(0.18, LocalizationManager.text(&"bootstrap.step.input_map"))
 	InputManager.initialize()
-	boot_progress_changed.emit(0.30, "Configuring performance profile")
+	boot_progress_changed.emit(0.30, LocalizationManager.text(&"bootstrap.step.performance"))
 	PerformanceManager.apply_startup_profile()
-	boot_progress_changed.emit(0.42, "Applying audio preferences")
+	boot_progress_changed.emit(0.42, LocalizationManager.text(&"bootstrap.step.audio"))
 	AudioManager.initialize_from_settings()
-	boot_progress_changed.emit(0.60, "Loading core scene")
+	boot_progress_changed.emit(0.60, LocalizationManager.text(&"bootstrap.step.scene"))
 
 	_main_scene_cache = load(MAIN_SCENE_PATH) as PackedScene
 	if _main_scene_cache == null:
 		_fail_boot("Main scene could not be loaded from %s." % MAIN_SCENE_PATH)
 		return
 
-	boot_progress_changed.emit(0.92, "Preparing interface")
+	boot_progress_changed.emit(0.92, LocalizationManager.text(&"bootstrap.step.interface"))
 	call_deferred("_complete_boot")
 
 
@@ -106,7 +108,7 @@ func _complete_boot() -> void:
 		_fail_boot("Main scene was loaded but no PackedScene was returned.")
 		return
 
-	boot_progress_changed.emit(0.97, "Finalizing startup")
+	boot_progress_changed.emit(0.97, LocalizationManager.text(&"bootstrap.step.finalizing"))
 	var change_error := get_tree().change_scene_to_packed(_main_scene_cache)
 	if change_error != OK:
 		_fail_boot("Scene switch failed with error %s." % change_error)
@@ -114,7 +116,7 @@ func _complete_boot() -> void:
 
 	await get_tree().process_frame
 	_boot_requested = false
-	boot_progress_changed.emit(1.0, "Ready")
+	boot_progress_changed.emit(1.0, LocalizationManager.text(&"bootstrap.status.ready"))
 	boot_completed.emit()
 
 

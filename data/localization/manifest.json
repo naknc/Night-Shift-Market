@@ -1,0 +1,54 @@
+{
+	"fallback_locale": "en",
+	"locales": [
+		{
+			"code": "en",
+			"display_name": "English",
+			"native_name": "English",
+			"rtl": false,
+			"path": "res://data/localization/en.json"
+		},
+		{
+			"code": "tr",
+			"display_name": "Turkish",
+			"native_name": "Turkce",
+			"rtl": false,
+			"path": "res://data/localization/tr.json"
+		},
+		{
+			"code": "de",
+			"display_name": "German",
+			"native_name": "Deutsch",
+			"rtl": false,
+			"path": "res://data/localization/de.json"
+		},
+		{
+			"code": "fr",
+			"display_name": "French",
+			"native_name": "Francais",
+			"rtl": false,
+			"path": "res://data/localization/fr.json"
+		},
+		{
+			"code": "es",
+			"display_name": "Spanish",
+			"native_name": "Espanol",
+			"rtl": false,
+			"path": "res://data/localization/es.json"
+		},
+		{
+			"code": "it",
+			"display_name": "Italian",
+			"native_name": "Italiano",
+			"rtl": false,
+			"path": "res://data/localization/it.json"
+		},
+		{
+			"code": "pt",
+			"display_name": "Portuguese",
+			"native_name": "Portugues",
+			"rtl": false,
+			"path": "res://data/localization/pt.json"
+		}
+	]
+}

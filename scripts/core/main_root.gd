@@ -13,6 +13,7 @@ var _active_game: Node3D = null
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	overlay_root.visible = false
 	GameManager.register_main_root(self)
 
 
@@ -68,6 +69,7 @@ func _open_settings() -> void:
 
 	if panel.has_signal("closed"):
 		panel.connect("closed", Callable(self, "_close_settings_overlay"))
+	overlay_root.visible = true
 	overlay_root.add_child(panel)
 
 
@@ -88,5 +90,6 @@ func _clear_world() -> void:
 
 
 func _clear_overlay() -> void:
+	overlay_root.visible = false
 	for child in overlay_root.get_children():
 		child.queue_free()

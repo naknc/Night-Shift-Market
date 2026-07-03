@@ -251,6 +251,7 @@ func _make_default_box_manifest() -> Array[Dictionary]:
 		{
 			"box_id": "box_drinks",
 			"display_name": "Cold Drinks",
+			"display_name_key": "name.box.box_drinks",
 			"contents": [
 				{"product_id": "sparkling_water", "quantity": 10},
 				{"product_id": "orange_soda", "quantity": 8}
@@ -259,6 +260,7 @@ func _make_default_box_manifest() -> Array[Dictionary]:
 		{
 			"box_id": "box_snacks",
 			"display_name": "Snack Refill",
+			"display_name_key": "name.box.box_snacks",
 			"contents": [
 				{"product_id": "sea_salt_chips", "quantity": 8},
 				{"product_id": "granola_bar", "quantity": 12}
@@ -267,6 +269,7 @@ func _make_default_box_manifest() -> Array[Dictionary]:
 		{
 			"box_id": "box_fruit",
 			"display_name": "Produce Delivery",
+			"display_name_key": "name.box.box_fruit",
 			"contents": [
 				{"product_id": "green_apple", "quantity": 14},
 				{"product_id": "clementine_pack", "quantity": 6}

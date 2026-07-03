@@ -29,7 +29,7 @@ var _carried_box: Node = null
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
 	raycast.target_position = Vector3(0.0, 0.0, -interact_distance)
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_update_interaction_prompt()
 
 
@@ -135,7 +135,7 @@ func _update_look_rotation() -> void:
 func _try_interact() -> void:
 	var collider := _get_interactable()
 	if collider == null:
-		notification_requested.emit("Nothing nearby to interact with.")
+		notification_requested.emit(LocalizationManager.text(&"notification.nothing_to_interact"))
 		return
 
 	if collider != null and collider.has_method("unpack"):
@@ -145,13 +145,13 @@ func _try_interact() -> void:
 
 	if collider != null and collider.has_method("restock_from_inventory"):
 		if _carried_box != null:
-			notification_requested.emit("Drop the carried box before stocking a shelf.")
+			notification_requested.emit(LocalizationManager.text(&"notification.drop_box_before_stock"))
 			return
 		if _game_root != null and _game_root.has_method("try_restock_shelf"):
 			_game_root.call("try_restock_shelf", collider)
 		return
 
-	notification_requested.emit("This object is not ready for interaction.")
+	notification_requested.emit(LocalizationManager.text(&"notification.object_not_ready"))
 
 
 func _try_grab_or_drop() -> void:
@@ -163,11 +163,11 @@ func _try_grab_or_drop() -> void:
 	if collider != null and collider.has_method("can_be_grabbed") and bool(collider.call("can_be_grabbed")):
 		_carried_box = collider as Node
 		_carried_box.call("grab_to", carry_anchor)
-		carried_box_changed.emit(String(_carried_box.get("display_name")))
+		carried_box_changed.emit(String(_carried_box.call("get_display_name")))
 		player_state_changed.emit()
 		return
 
-	notification_requested.emit("Only delivery boxes can be carried right now.")
+	notification_requested.emit(LocalizationManager.text(&"notification.only_boxes_carried"))
 
 
 func _drop_carried_box() -> void:
@@ -184,7 +184,12 @@ func _drop_carried_box() -> void:
 	else:
 		_carried_box.call("drop_to", get_parent() as Node3D, drop_position, drop_basis)
 
-	notification_requested.emit("%s dropped." % String(_carried_box.get("display_name")))
+	notification_requested.emit(
+		LocalizationManager.text(
+			&"notification.box_dropped",
+			{"box": String(_carried_box.call("get_display_name"))}
+		)
+	)
 	_carried_box = null
 	carried_box_changed.emit("")
 	player_state_changed.emit()
@@ -202,10 +207,10 @@ func _update_interaction_prompt() -> void:
 	if collider != null and collider.has_method("unpack"):
 		prompt_changed.emit(String(collider.call("get_interaction_prompt")))
 		return
-		if collider != null and collider.has_method("restock_from_inventory"):
-			if _game_root != null:
-				var inventory: Variant = _game_root.get("player_inventory")
-				var catalog: Variant = _game_root.get("product_catalog")
-				prompt_changed.emit(String(collider.call("get_interaction_prompt", inventory, catalog)))
-				return
+	if collider != null and collider.has_method("restock_from_inventory"):
+		if _game_root != null:
+			var inventory: Variant = _game_root.get("player_inventory")
+			var catalog: Variant = _game_root.get("product_catalog")
+			prompt_changed.emit(String(collider.call("get_interaction_prompt", inventory, catalog)))
+			return
 	prompt_changed.emit("")

@@ -10,6 +10,9 @@ const SAVE_PATH: String = "user://savegame.json"
 const SAVE_VERSION: int = 1
 
 const DEFAULT_SETTINGS: Dictionary = {
+	"general": {
+		"language": "system"
+	},
 	"audio": {
 		"master_db": -2.0,
 		"music_db": -6.0,

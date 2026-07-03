@@ -6,6 +6,7 @@ signal box_state_changed()
 
 var box_id: StringName = &""
 var display_name: String = "Delivery Box"
+var display_name_key: StringName = &""
 var contents: Array[Dictionary] = []
 var storage_zone: Node3D = null
 var home_parent: Node3D = null
@@ -18,19 +19,26 @@ var is_carried: bool = false
 
 
 func _ready() -> void:
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 	_update_visuals()
+
+
+func _exit_tree() -> void:
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func configure_from_data(data: Dictionary, zone: Node3D, world_parent: Node3D) -> void:
 	box_id = StringName(String(data.get("box_id", "box")))
 	display_name = String(data.get("display_name", "Delivery Box"))
+	display_name_key = StringName(String(data.get("display_name_key", "")))
 	contents = _read_contents_array(data.get("contents", []))
 	storage_zone = zone
 	home_parent = world_parent
 	is_opened = bool(data.get("is_opened", false))
 	is_carried = false
 
-	var position_data := data.get("position", [0.0, 0.6, 0.0])
+	var position_data: Variant = data.get("position", [0.0, 0.6, 0.0])
 	if position_data is Array and position_data.size() >= 3:
 		global_position = Vector3(
 			float(position_data[0]),
@@ -54,13 +62,20 @@ func serialize_state() -> Dictionary:
 func get_interaction_prompt() -> String:
 	if is_opened:
 		return ""
+	var box_name := get_display_name()
 	if is_carried:
 		if is_inside_storage():
-			return "Tap to unpack %s" % display_name
-		return "Move %s into storage to unpack" % display_name
+			return LocalizationManager.text(&"prompt.box.tap_unpack", {"box": box_name})
+		return LocalizationManager.text(&"prompt.box.move_to_storage", {"box": box_name})
 	if is_inside_storage():
-		return "Tap to unpack / Hold to carry %s" % display_name
-	return "Hold to carry %s" % display_name
+		return LocalizationManager.text(&"prompt.box.tap_or_hold", {"box": box_name})
+	return LocalizationManager.text(&"prompt.box.hold_carry", {"box": box_name})
+
+
+func get_display_name() -> String:
+	if display_name_key != StringName():
+		return LocalizationManager.text(display_name_key)
+	return display_name
 
 
 func can_be_grabbed() -> bool:
@@ -105,7 +120,7 @@ func unpack() -> Array[Dictionary]:
 
 	is_opened = true
 	is_carried = false
-	var unpacked := _duplicate_contents(contents)
+	var unpacked: Array[Dictionary] = _duplicate_contents(contents)
 	contents.clear()
 	_update_visuals()
 	box_state_changed.emit()
@@ -119,13 +134,23 @@ func _update_visuals() -> void:
 
 	if is_opened:
 		mesh_instance.visible = false
-		label.text = "%s unpacked" % display_name
+		label.text = LocalizationManager.text(&"label.box.unpacked", {"box": get_display_name()})
 		label.modulate = Color(0.68, 0.82, 0.69)
 		return
 
 	mesh_instance.visible = true
-	label.text = "%s\n%d item stacks" % [display_name, contents.size()]
+	label.text = LocalizationManager.text(
+		&"label.box.item_stacks",
+		{
+			"box": get_display_name(),
+			"count": contents.size()
+		}
+	)
 	label.modulate = Color(1.0, 0.95, 0.85)
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_update_visuals()
 
 
 func _read_contents_array(raw_contents: Variant) -> Array[Dictionary]:

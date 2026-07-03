@@ -2,6 +2,7 @@ extends Control
 class_name BootstrapController
 
 var _title_label: Label
+var _subtitle_label: Label
 var _status_label: Label
 var _progress_bar: ProgressBar
 var _retry_button: Button
@@ -11,6 +12,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_interface()
 	_connect_signals()
+	_apply_localized_text()
 	GameManager.start_bootstrap()
 
 
@@ -21,6 +23,8 @@ func _exit_tree() -> void:
 		GameManager.boot_failed.disconnect(_on_boot_failed)
 	if GameManager.boot_completed.is_connected(_on_boot_completed):
 		GameManager.boot_completed.disconnect(_on_boot_completed)
+	if LocalizationManager.locale_changed.is_connected(_on_locale_changed):
+		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
 func _build_interface() -> void:
@@ -62,12 +66,11 @@ func _build_interface() -> void:
 	_title_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.82))
 	layout.add_child(_title_label)
 
-	var subtitle_label := Label.new()
-	subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle_label.text = "Building the market for your next shift..."
-	subtitle_label.add_theme_font_size_override("font_size", 20)
-	subtitle_label.add_theme_color_override("font_color", Color(0.93, 0.80, 0.67))
-	layout.add_child(subtitle_label)
+	_subtitle_label = Label.new()
+	_subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_subtitle_label.add_theme_font_size_override("font_size", 20)
+	_subtitle_label.add_theme_color_override("font_color", Color(0.93, 0.80, 0.67))
+	layout.add_child(_subtitle_label)
 
 	_progress_bar = ProgressBar.new()
 	_progress_bar.custom_minimum_size = Vector2(0.0, 30.0)
@@ -78,7 +81,7 @@ func _build_interface() -> void:
 
 	_status_label = Label.new()
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status_label.text = "Starting bootstrap..."
+	_status_label.text = ""
 	_status_label.add_theme_font_size_override("font_size", 18)
 	_status_label.add_theme_color_override("font_color", Color(0.96, 0.86, 0.73))
 	layout.add_child(_status_label)
@@ -88,6 +91,7 @@ func _build_interface() -> void:
 	_retry_button.visible = false
 	_retry_button.custom_minimum_size = Vector2(240.0, 52.0)
 	_retry_button.pressed.connect(_on_retry_pressed)
+	_attach_button_feedback(_retry_button)
 	layout.add_child(_retry_button)
 
 
@@ -95,6 +99,7 @@ func _connect_signals() -> void:
 	GameManager.boot_progress_changed.connect(_on_boot_progress_changed)
 	GameManager.boot_failed.connect(_on_boot_failed)
 	GameManager.boot_completed.connect(_on_boot_completed)
+	LocalizationManager.locale_changed.connect(_on_locale_changed)
 
 
 func _on_boot_progress_changed(progress: float, message: String) -> void:
@@ -108,11 +113,63 @@ func _on_boot_failed(message: String) -> void:
 
 
 func _on_boot_completed() -> void:
-	_status_label.text = "Launching main shell..."
+	_status_label.text = LocalizationManager.text(&"bootstrap.status.launching")
 
 
 func _on_retry_pressed() -> void:
 	_retry_button.visible = false
 	_progress_bar.value = 0.0
-	_status_label.text = "Retrying startup..."
+	_status_label.text = LocalizationManager.text(&"bootstrap.status.retrying")
 	GameManager.retry_bootstrap()
+
+
+func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
+	_apply_localized_text()
+
+
+func _apply_localized_text() -> void:
+	LocalizationManager.apply_control_locale(self)
+	if _title_label != null:
+		_title_label.text = LocalizationManager.text(&"app.title")
+	if _subtitle_label != null:
+		_subtitle_label.text = LocalizationManager.text(&"bootstrap.subtitle")
+	if _retry_button != null:
+		_retry_button.text = LocalizationManager.text(&"bootstrap.retry")
+	if _status_label != null and _status_label.text.is_empty():
+		_status_label.text = LocalizationManager.text(&"bootstrap.status.starting")
+
+
+func _attach_button_feedback(button: BaseButton) -> void:
+	button.pivot_offset = button.size * 0.5
+	button.resized.connect(func() -> void:
+		button.pivot_offset = button.size * 0.5
+	)
+	button.button_down.connect(func() -> void:
+		_animate_button_state(button, true)
+	)
+	button.button_up.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.pressed.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+	button.mouse_exited.connect(func() -> void:
+		_animate_button_state(button, false)
+	)
+
+
+func _animate_button_state(button: Control, is_pressed: bool) -> void:
+	if button == null:
+		return
+	if not button.has_meta("rest_position"):
+		button.set_meta("rest_position", button.position)
+	var target_scale := Vector2.ONE
+	var target_position := button.get_meta("rest_position") as Vector2
+	if is_pressed:
+		target_scale = Vector2(0.975, 0.975)
+		target_position = (button.get_meta("rest_position") as Vector2) + Vector2(0.0, 4.0)
+	var tween := create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "scale", target_scale, 0.08)
+	tween.parallel().tween_property(button, "position", target_position, 0.08)
