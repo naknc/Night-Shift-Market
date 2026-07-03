@@ -14,6 +14,7 @@ var _truck_root: Node3D
 var _cargo_anchor: Node3D
 var _active_boxes: Array[Node] = []
 var _state: StringName = &"idle"
+var _truck_tween: Tween = null
 
 
 func _ready() -> void:
@@ -25,8 +26,10 @@ func initialize_delivery(data: Dictionary, zone: Node3D, target_parent: Node3D) 
 	world_parent = target_parent
 	_clear_boxes()
 	_build_truck()
+	_stop_truck_tween()
 
 	var saved_state := StringName(String(data.get("state", "arriving")))
+	var saved_truck_position := _read_truck_position(data, _get_truck_entry_position())
 	var box_entries: Array = data.get("boxes", [])
 
 	if not box_entries.is_empty():
@@ -42,19 +45,22 @@ func initialize_delivery(data: Dictionary, zone: Node3D, target_parent: Node3D) 
 			if not bool(box.get("is_opened")):
 				_active_boxes.append(box)
 		_set_state(saved_state if saved_state != &"idle" else &"unloading")
-		_set_truck_position(_get_truck_park_position())
+		_set_truck_position(saved_truck_position)
 		_emit_box_manifest_changed()
 		return
 
 	_set_state(saved_state)
 	match _state:
 		&"completed", &"departed":
-			_set_truck_position(_get_truck_exit_position())
+			if _state == &"departed":
+				_set_truck_position(saved_truck_position if data.has("truck_position") else _get_truck_exit_position())
+			else:
+				_resume_truck_departure(saved_truck_position)
 		&"unloading":
-			_set_truck_position(_get_truck_park_position())
+			_set_truck_position(saved_truck_position if data.has("truck_position") else _get_truck_park_position())
 			_spawn_default_boxes()
 		_:
-			_start_truck_arrival()
+			_resume_truck_arrival(saved_truck_position)
 
 
 func serialize_state() -> Dictionary:
@@ -99,10 +105,21 @@ func process_box_unpack(box: Node) -> Array[Dictionary]:
 
 
 func _start_truck_arrival() -> void:
-	_set_truck_position(_get_truck_entry_position())
-	var tween := create_tween()
-	tween.tween_property(_truck_root, "position", _get_truck_park_position(), 2.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.finished.connect(func() -> void:
+	_resume_truck_arrival(_get_truck_entry_position())
+
+
+func _resume_truck_arrival(start_position: Vector3) -> void:
+	_set_truck_position(start_position)
+	if _truck_root.position.is_equal_approx(_get_truck_park_position()):
+		_set_state(&"unloading")
+		_spawn_default_boxes()
+		return
+
+	var duration := _get_transition_duration(start_position, _get_truck_park_position(), 2.2)
+	_truck_tween = create_tween()
+	_truck_tween.tween_property(_truck_root, "position", _get_truck_park_position(), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_truck_tween.finished.connect(func() -> void:
+		_truck_tween = null
 		_set_state(&"unloading")
 		_spawn_default_boxes()
 	)
@@ -153,9 +170,20 @@ func _remove_box(box: Node) -> void:
 
 func _begin_truck_departure() -> void:
 	_set_state(&"completed")
-	var tween := create_tween()
-	tween.tween_property(_truck_root, "position", _get_truck_exit_position(), 2.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	tween.finished.connect(func() -> void:
+	_resume_truck_departure(_truck_root.position)
+
+
+func _resume_truck_departure(start_position: Vector3) -> void:
+	_set_truck_position(start_position)
+	if _truck_root.position.is_equal_approx(_get_truck_exit_position()):
+		_set_state(&"departed")
+		return
+
+	var duration := _get_transition_duration(start_position, _get_truck_exit_position(), 2.4)
+	_truck_tween = create_tween()
+	_truck_tween.tween_property(_truck_root, "position", _get_truck_exit_position(), duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	_truck_tween.finished.connect(func() -> void:
+		_truck_tween = null
 		_set_state(&"departed")
 	)
 
@@ -173,6 +201,12 @@ func _clear_boxes() -> void:
 		if is_instance_valid(box):
 			box.queue_free()
 	_active_boxes.clear()
+
+
+func _stop_truck_tween() -> void:
+	if _truck_tween != null:
+		_truck_tween.kill()
+		_truck_tween = null
 
 
 func _build_truck() -> void:
@@ -244,6 +278,23 @@ func _get_truck_exit_position() -> Vector3:
 func _set_truck_position(position_value: Vector3) -> void:
 	if _truck_root != null:
 		_truck_root.position = position_value
+
+
+func _read_truck_position(data: Dictionary, fallback: Vector3) -> Vector3:
+	var position_data := data.get("truck_position", [fallback.x, fallback.y, fallback.z])
+	if position_data is Array and position_data.size() >= 3:
+		return Vector3(float(position_data[0]), float(position_data[1]), float(position_data[2]))
+	return fallback
+
+
+func _get_transition_duration(start_position: Vector3, target_position: Vector3, full_duration: float) -> float:
+	var full_distance := _get_truck_entry_position().distance_to(_get_truck_park_position())
+	if target_position == _get_truck_exit_position():
+		full_distance = _get_truck_park_position().distance_to(_get_truck_exit_position())
+	var remaining_distance := start_position.distance_to(target_position)
+	if full_distance <= 0.001:
+		return 0.01
+	return maxf(0.01, full_duration * (remaining_distance / full_distance))
 
 
 func _make_default_box_manifest() -> Array[Dictionary]:
