@@ -2,6 +2,7 @@ extends Node
 class_name MainRoot
 
 const SETTINGS_PANEL_SCENE: PackedScene = preload("res://scenes/ui/settings/settings_panel.tscn")
+const PAUSE_MENU_SCENE: PackedScene = preload("res://scenes/ui/pause/pause_menu.tscn")
 
 @onready var world_root: Node3D = $WorldRoot
 @onready var screen_root: Control = $UIRoot/ScreenRoot
@@ -59,7 +60,7 @@ func show_game(game_scene: PackedScene, save_data: Dictionary) -> void:
 
 
 func _open_settings() -> void:
-	if overlay_root.get_child_count() > 0:
+	if overlay_root.get_node_or_null("SettingsPanel") != null:
 		return
 
 	var panel := SETTINGS_PANEL_SCENE.instantiate() as Control
@@ -73,8 +74,50 @@ func _open_settings() -> void:
 	overlay_root.add_child(panel)
 
 
+func open_pause_menu() -> void:
+	if _active_game == null:
+		return
+	if overlay_root.get_node_or_null("PauseMenu") != null:
+		return
+
+	var menu := PAUSE_MENU_SCENE.instantiate() as Control
+	if menu == null:
+		push_error("MainRoot could not instantiate the pause menu.")
+		return
+
+	if menu.has_signal("resume_requested"):
+		menu.connect("resume_requested", Callable(self, "close_pause_menu"))
+	if menu.has_signal("settings_requested"):
+		menu.connect("settings_requested", Callable(self, "_open_settings"))
+	if menu.has_signal("main_menu_requested"):
+		menu.connect("main_menu_requested", Callable(self, "_return_to_main_menu_from_pause"))
+
+	overlay_root.visible = true
+	overlay_root.add_child(menu)
+	get_tree().paused = true
+
+
+func close_pause_menu() -> void:
+	var pause_menu := overlay_root.get_node_or_null("PauseMenu")
+	if pause_menu != null:
+		pause_menu.queue_free()
+	if overlay_root.get_node_or_null("SettingsPanel") == null:
+		overlay_root.visible = false
+		get_tree().paused = false
+
+
 func _close_settings_overlay() -> void:
+	var panel := overlay_root.get_node_or_null("SettingsPanel")
+	if panel != null:
+		panel.queue_free()
+	if overlay_root.get_node_or_null("PauseMenu") == null:
+		overlay_root.visible = false
+		get_tree().paused = false
+
+
+func _return_to_main_menu_from_pause() -> void:
 	_clear_overlay()
+	GameManager.return_to_main_menu()
 
 
 func _clear_screen() -> void:
@@ -90,6 +133,7 @@ func _clear_world() -> void:
 
 
 func _clear_overlay() -> void:
+	get_tree().paused = false
 	overlay_root.visible = false
 	for child in overlay_root.get_children():
 		child.queue_free()

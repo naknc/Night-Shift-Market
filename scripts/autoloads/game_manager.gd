@@ -89,6 +89,18 @@ func return_to_main_menu() -> void:
 	show_main_menu()
 
 
+func open_pause_menu() -> void:
+	if _main_root == null or _state != AppState.IN_GAME:
+		return
+	_main_root.open_pause_menu()
+
+
+func close_pause_menu() -> void:
+	if _main_root == null:
+		return
+	_main_root.close_pause_menu()
+
+
 func request_exit() -> void:
 	get_tree().quit()
 

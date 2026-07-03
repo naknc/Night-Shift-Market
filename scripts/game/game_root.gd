@@ -292,7 +292,7 @@ func _on_carried_box_changed(label: String) -> void:
 
 func _on_pause_requested() -> void:
 	_request_save(true)
-	GameManager.return_to_main_menu()
+	GameManager.open_pause_menu()
 
 
 func _phase_to_text(phase: StringName) -> String:
