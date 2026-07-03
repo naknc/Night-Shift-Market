@@ -7,6 +7,8 @@ signal save_data_written(save_data: Dictionary)
 
 const SETTINGS_PATH: String = "user://settings.cfg"
 const SAVE_PATH: String = "user://savegame.json"
+const SAVE_BACKUP_PATH: String = "user://savegame.backup.json"
+const SAVE_TEMP_PATH: String = "user://savegame.tmp.json"
 const SAVE_VERSION: int = 1
 
 const DEFAULT_SETTINGS: Dictionary = {
@@ -151,17 +153,40 @@ func load_game_data() -> Dictionary:
 	return get_save_data()
 
 
-func write_game_data(data: Dictionary) -> void:
-	_save_data = _duplicate_dictionary(data)
-	_stamp_save_time(_save_data)
+func write_game_data(data: Dictionary, preserve_existing_backup: bool = false) -> void:
+	var prepared_save := _prepare_save_for_write(data)
+	var serialized_save := JSON.stringify(prepared_save, "\t")
 
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if file == null:
-		push_error("SaveManager failed to open save file for writing.")
+	if not _write_text_file(SAVE_TEMP_PATH, serialized_save):
+		push_error("SaveManager failed to write temporary save data.")
 		return
 
-	file.store_string(JSON.stringify(_save_data, "\t"))
-	file.close()
+	var existing_save_global := ProjectSettings.globalize_path(SAVE_PATH)
+	var backup_save_global := ProjectSettings.globalize_path(SAVE_BACKUP_PATH)
+	var temp_save_global := ProjectSettings.globalize_path(SAVE_TEMP_PATH)
+
+	if preserve_existing_backup:
+		if FileAccess.file_exists(SAVE_PATH):
+			DirAccess.remove_absolute(existing_save_global)
+	else:
+		if FileAccess.file_exists(SAVE_BACKUP_PATH):
+			DirAccess.remove_absolute(backup_save_global)
+		if FileAccess.file_exists(SAVE_PATH):
+			var backup_result := DirAccess.rename_absolute(existing_save_global, backup_save_global)
+			if backup_result != OK:
+				push_error("SaveManager failed to rotate previous save into backup: %s" % backup_result)
+				DirAccess.remove_absolute(temp_save_global)
+				return
+
+	var promote_result := DirAccess.rename_absolute(temp_save_global, existing_save_global)
+	if promote_result != OK:
+		push_error("SaveManager failed to promote temporary save into the primary slot: %s" % promote_result)
+		if FileAccess.file_exists(SAVE_BACKUP_PATH):
+			DirAccess.rename_absolute(backup_save_global, existing_save_global)
+		DirAccess.remove_absolute(temp_save_global)
+		return
+
+	_save_data = prepared_save
 	save_data_written.emit(get_save_data())
 
 
@@ -193,23 +218,22 @@ func _load_settings_from_disk() -> Dictionary:
 
 
 func _load_save_data_from_disk() -> Dictionary:
-	if not FileAccess.file_exists(SAVE_PATH):
+	if not FileAccess.file_exists(SAVE_PATH) and not FileAccess.file_exists(SAVE_BACKUP_PATH):
 		return _duplicate_dictionary(DEFAULT_SAVE_DATA)
 
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if file == null:
-		push_error("SaveManager failed to open save file for reading.")
-		return _duplicate_dictionary(DEFAULT_SAVE_DATA)
+	var primary_save := _read_save_file(SAVE_PATH)
+	if not primary_save.is_empty():
+		return primary_save
 
-	var raw_text := file.get_as_text()
-	file.close()
+	var backup_save := _read_save_file(SAVE_BACKUP_PATH)
+	if not backup_save.is_empty():
+		push_warning("SaveManager restored save data from backup after the primary file failed validation.")
+		_save_data = backup_save
+		write_game_data(backup_save, true)
+		return backup_save
 
-	var parsed: Variant = JSON.parse_string(raw_text)
-	if typeof(parsed) != TYPE_DICTIONARY:
-		push_warning("SaveManager found malformed save data. Recreating save structure.")
-		return _duplicate_dictionary(DEFAULT_SAVE_DATA)
-
-	return _merge_defaults(_duplicate_dictionary(DEFAULT_SAVE_DATA), parsed as Dictionary)
+	push_warning("SaveManager could not recover the save data. Recreating the default save structure.")
+	return _duplicate_dictionary(DEFAULT_SAVE_DATA)
 
 
 func _stamp_save_time(data: Dictionary) -> void:
@@ -217,6 +241,81 @@ func _stamp_save_time(data: Dictionary) -> void:
 	meta["version"] = SAVE_VERSION
 	meta["last_saved_unix"] = Time.get_unix_time_from_system()
 	data["meta"] = meta
+
+
+func _prepare_save_for_write(data: Dictionary) -> Dictionary:
+	var prepared_save := _merge_defaults(_duplicate_dictionary(DEFAULT_SAVE_DATA), _duplicate_dictionary(data))
+	_stamp_save_time(prepared_save)
+	return prepared_save
+
+
+func _read_save_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		push_warning("SaveManager failed to open save file for reading: %s" % path)
+		return {}
+
+	var raw_text := file.get_as_text()
+	file.close()
+
+	var parsed: Variant = JSON.parse_string(raw_text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("SaveManager found malformed JSON in %s." % path)
+		return {}
+
+	var migrated_save := _migrate_save_data(parsed as Dictionary)
+	if migrated_save.is_empty():
+		return {}
+	if not _is_save_structure_valid(migrated_save):
+		push_warning("SaveManager rejected %s because its structure is invalid." % path)
+		return {}
+
+	return _merge_defaults(_duplicate_dictionary(DEFAULT_SAVE_DATA), migrated_save)
+
+
+func _migrate_save_data(data: Dictionary) -> Dictionary:
+	var migrated_save := _duplicate_dictionary(data)
+	var meta := migrated_save.get("meta", {}) as Dictionary
+	var version := int(meta.get("version", 1))
+
+	if version > SAVE_VERSION:
+		push_warning("SaveManager found a newer save version (%d) than the runtime supports (%d)." % [version, SAVE_VERSION])
+		return {}
+
+	while version < SAVE_VERSION:
+		match version:
+			_:
+				version = SAVE_VERSION
+
+	meta["version"] = SAVE_VERSION
+	migrated_save["meta"] = meta
+	return migrated_save
+
+
+func _is_save_structure_valid(data: Dictionary) -> bool:
+	return (
+		data.get("meta", null) is Dictionary
+		and data.get("progress", null) is Dictionary
+		and data.get("store", null) is Dictionary
+		and data.get("world", null) is Dictionary
+		and data.get("player", null) is Dictionary
+		and data.get("inventories", null) is Dictionary
+		and data.get("shelves", null) is Array
+		and data.get("delivery", null) is Dictionary
+		and data.get("morning_shift", null) is Dictionary
+	)
+
+
+func _write_text_file(path: String, contents: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(contents)
+	file.close()
+	return true
 
 
 func _merge_defaults(base: Dictionary, incoming: Dictionary) -> Dictionary:
