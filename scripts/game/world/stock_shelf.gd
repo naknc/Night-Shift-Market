@@ -1,0 +1,239 @@
+extends StaticBody3D
+class_name StockShelf
+
+signal shelf_stock_changed(shelf_id: StringName, data: Dictionary)
+
+var shelf_id: StringName = &"shelf"
+var shelf_label: String = "Shelf"
+var shelf_type: StringName = &"general_shelf"
+var accepted_categories: PackedStringArray = PackedStringArray()
+var capacity_units: int = 12
+var current_product_id: StringName = StringName()
+var current_quantity: int = 0
+
+var _slot_nodes: Array[MeshInstance3D] = []
+var _slot_positions: Array[Vector3] = []
+var _visual_ready: bool = false
+
+@onready var mesh_root: Node3D = $MeshRoot
+@onready var product_root: Node3D = $ProductRoot
+@onready var label: Label3D = $Label3D
+
+
+func _ready() -> void:
+	_build_visuals()
+	_refresh_visual_state(null)
+
+
+func configure_from_data(data: Dictionary) -> void:
+	shelf_id = StringName(String(data.get("shelf_id", "shelf")))
+	shelf_label = String(data.get("shelf_label", "Shelf"))
+	shelf_type = StringName(String(data.get("shelf_type", "general_shelf")))
+	capacity_units = int(data.get("capacity_units", 12))
+
+	var category_array: Array = data.get("accepted_categories", [])
+	accepted_categories = PackedStringArray()
+	if category_array is Array:
+		for raw_category in category_array:
+			accepted_categories.append(String(raw_category))
+
+	current_product_id = StringName(String(data.get("current_product_id", "")))
+	current_quantity = int(data.get("current_quantity", 0))
+	_refresh_visual_state(null)
+
+
+func serialize_state() -> Dictionary:
+	var categories: Array[String] = []
+	for category in accepted_categories:
+		categories.append(category)
+
+	return {
+		"shelf_id": String(shelf_id),
+		"shelf_label": shelf_label,
+		"shelf_type": String(shelf_type),
+		"accepted_categories": categories,
+		"capacity_units": capacity_units,
+		"current_product_id": String(current_product_id),
+		"current_quantity": current_quantity
+	}
+
+
+func get_interaction_prompt(inventory: Node, catalog: Node) -> String:
+	var selected_product: Variant = _choose_restock_product(inventory, catalog)
+	if selected_product == null:
+		if current_quantity > 0:
+			return "%s stocked: %d units" % [shelf_label, current_quantity]
+		return "%s is empty" % shelf_label
+
+	var max_quantity := _get_max_quantity_for_product(selected_product)
+	if current_quantity >= max_quantity:
+		return "%s fully stocked" % shelf_label
+
+	return "Tap to stock %s (%d/%d)" % [
+		String(selected_product.get("display_name")),
+		current_quantity,
+		max_quantity
+	]
+
+
+func restock_from_inventory(inventory: Node, catalog: Node) -> Dictionary:
+	var selected_product: Variant = _choose_restock_product(inventory, catalog)
+	if selected_product == null:
+		return {"added_quantity": 0, "product_id": ""}
+
+	var max_quantity := _get_max_quantity_for_product(selected_product)
+	var remaining_capacity := maxi(0, max_quantity - current_quantity)
+	if remaining_capacity <= 0:
+		return {"added_quantity": 0, "product_id": String(selected_product.get("product_id"))}
+
+	var available_quantity: int = int(inventory.call("get_quantity", selected_product.get("product_id")))
+	var added_quantity := mini(available_quantity, remaining_capacity)
+	if added_quantity <= 0:
+		return {"added_quantity": 0, "product_id": String(selected_product.get("product_id"))}
+
+	if current_product_id == StringName():
+		current_product_id = selected_product.get("product_id")
+
+	inventory.call("remove_product", selected_product.get("product_id"), added_quantity)
+	current_quantity += added_quantity
+	_refresh_visual_state(selected_product)
+	shelf_stock_changed.emit(shelf_id, serialize_state())
+
+	return {
+		"added_quantity": added_quantity,
+		"product_id": String(selected_product.get("product_id"))
+	}
+
+
+func needs_stock(catalog: Node) -> bool:
+	var product: Variant = catalog.call("get_product", current_product_id)
+	if product == null:
+		return true
+	return current_quantity < _get_max_quantity_for_product(product)
+
+
+func _choose_restock_product(inventory: Node, catalog: Node) -> Variant:
+	if current_product_id != StringName():
+		var current_product: Variant = catalog.call("get_product", current_product_id)
+		if current_product != null and int(inventory.call("get_quantity", current_product_id)) > 0:
+			return current_product
+
+	var best_product: Variant = null
+	var best_quantity := 0
+
+	for entry in inventory.call("serialize"):
+		var product_id := StringName(String(entry.get("product_id", "")))
+		var quantity := int(entry.get("quantity", 0))
+		var product: Variant = catalog.call("get_product", product_id)
+		if product == null or quantity <= 0 or not _is_product_compatible(product):
+			continue
+		if quantity > best_quantity:
+			best_quantity = quantity
+			best_product = product
+
+	return best_product
+
+
+func _is_product_compatible(product: Variant) -> bool:
+	if not bool(product.call("can_fit_shelf_type", shelf_type)):
+		return false
+	if accepted_categories.is_empty():
+		return true
+	return accepted_categories.has(String(product.get("category")))
+
+
+func _get_max_quantity_for_product(product: Variant) -> int:
+	var units := maxi(1, int(product.get("volume_units")))
+	return maxi(1, capacity_units / units)
+
+
+func _build_visuals() -> void:
+	if _visual_ready:
+		return
+
+	_visual_ready = true
+	_build_frame()
+	_build_product_slots()
+
+
+func _build_frame() -> void:
+	var frame_material := StandardMaterial3D.new()
+	frame_material.albedo_color = Color(0.52, 0.37, 0.23)
+	frame_material.roughness = 0.88
+
+	var side_left := _make_mesh_box(Vector3(-0.62, 1.35, 0.0), Vector3(0.10, 2.7, 1.2), frame_material)
+	mesh_root.add_child(side_left)
+	var side_right := _make_mesh_box(Vector3(0.62, 1.35, 0.0), Vector3(0.10, 2.7, 1.2), frame_material)
+	mesh_root.add_child(side_right)
+	var back_panel := _make_mesh_box(Vector3(0.0, 1.35, -0.56), Vector3(1.28, 2.7, 0.06), frame_material)
+	mesh_root.add_child(back_panel)
+
+	for board_y in [0.22, 1.0, 1.78, 2.56]:
+		var board := _make_mesh_box(Vector3(0.0, board_y, 0.0), Vector3(1.32, 0.08, 1.18), frame_material)
+		mesh_root.add_child(board)
+
+
+func _build_product_slots() -> void:
+	_slot_nodes.clear()
+	_slot_positions.clear()
+
+	var product_material := StandardMaterial3D.new()
+	product_material.albedo_color = Color(0.7, 0.7, 0.7)
+	product_material.roughness = 0.7
+
+	for row in 3:
+		for column in 4:
+			var slot_mesh := MeshInstance3D.new()
+			slot_mesh.visible = false
+			var box_mesh := BoxMesh.new()
+			box_mesh.size = Vector3(0.18, 0.18, 0.18)
+			slot_mesh.mesh = box_mesh
+			slot_mesh.material_override = product_material.duplicate() as Material
+
+			var slot_position := Vector3(-0.36 + float(column) * 0.24, 0.38 + float(row) * 0.78, -0.06)
+			slot_mesh.position = slot_position
+			product_root.add_child(slot_mesh)
+			_slot_nodes.append(slot_mesh)
+			_slot_positions.append(slot_position)
+
+
+func _refresh_visual_state(product: Variant) -> void:
+	if not _visual_ready:
+		return
+
+	var resolved_product: Variant = product
+	if resolved_product == null and current_product_id != StringName():
+		var root_node := get_tree().current_scene
+		if root_node != null:
+			var catalog_node := root_node.find_child("ProductCatalog", true, false)
+			if catalog_node != null and catalog_node.has_method("get_product"):
+				resolved_product = catalog_node.call("get_product", current_product_id)
+
+	var max_visible := mini(current_quantity, _slot_nodes.size())
+	for index in _slot_nodes.size():
+		var slot_node := _slot_nodes[index]
+		slot_node.visible = index < max_visible
+		if resolved_product != null:
+			slot_node.scale = resolved_product.get("display_scale")
+			var slot_material := slot_node.material_override as StandardMaterial3D
+			if slot_material != null:
+				slot_material.albedo_color = resolved_product.get("display_color")
+		slot_node.position = _slot_positions[index]
+
+	if label != null:
+		if resolved_product == null and current_quantity <= 0:
+			label.text = "%s\nEmpty" % shelf_label
+		elif resolved_product != null:
+			label.text = "%s\n%s x%d" % [shelf_label, String(resolved_product.get("display_name")), current_quantity]
+		else:
+			label.text = "%s\nStocked x%d" % [shelf_label, current_quantity]
+
+
+func _make_mesh_box(position_value: Vector3, size_value: Vector3, material: Material) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	mesh_instance.position = position_value
+	var box_mesh := BoxMesh.new()
+	box_mesh.size = size_value
+	mesh_instance.mesh = box_mesh
+	mesh_instance.material_override = material
+	return mesh_instance

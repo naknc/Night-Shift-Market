@@ -1,0 +1,35 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Night Shift Market"
+run/main_scene="res://scenes/bootstrap/bootstrap.tscn"
+config/features=PackedStringArray("4.7")
+config/icon="res://assets/textures/ui/app_icon.svg"
+
+[autoload]
+
+GameManager="*res://scripts/autoloads/game_manager.gd"
+SaveManager="*res://scripts/autoloads/save_manager.gd"
+AudioManager="*res://scripts/autoloads/audio_manager.gd"
+InputManager="*res://scripts/autoloads/input_manager.gd"
+PerformanceManager="*res://scripts/autoloads/performance_manager.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="viewport"
+window/stretch/aspect="expand"
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.0862745, 0.0705882, 0.054902, 1)

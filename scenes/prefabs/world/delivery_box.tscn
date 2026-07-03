@@ -1,0 +1,26 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/world/delivery_box.gd" id="1_box"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_m6u3l"]
+size = Vector3(0.8, 0.6, 0.8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_hgqqb"]
+size = Vector3(0.8, 0.6, 0.8)
+
+[node name="DeliveryBox" type="StaticBody3D"]
+script = ExtResource("1_box")
+collision_layer = 1
+collision_mask = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_m6u3l")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_hgqqb")
+
+[node name="Label3D" type="Label3D" parent="."]
+position = Vector3(0, 0.82, 0)
+billboard = 1
+font_size = 26
+text = "Delivery Box"
