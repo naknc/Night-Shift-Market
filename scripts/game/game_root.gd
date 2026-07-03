@@ -11,14 +11,14 @@ const WORLD_BUILDER_SCRIPT: Script = preload("res://scripts/game/builders/market
 @onready var ui_layer: CanvasLayer = $UiLayer
 @onready var systems_root: Node = $Systems
 
-var product_catalog: Node
-var player_inventory: Node
-var delivery_manager: Node
-var morning_shift_manager: Node
-var storage_zone: Node3D
-var shelves: Array = []
-var player: Node
-var hud: Control
+var product_catalog: ProductCatalog
+var player_inventory: InventoryContainer
+var delivery_manager: DeliveryManager
+var morning_shift_manager: MorningShiftManager
+var storage_zone: StorageZone
+var shelves: Array[StockShelf] = []
+var player: PlayerController
+var hud: GameHud
 
 var _pending_save_data: Dictionary = {}
 var _is_runtime_ready: bool = false
@@ -60,51 +60,51 @@ func get_interactable_root() -> Node3D:
 	return interactable_root
 
 
-func try_unpack_box(box: Node) -> void:
+func try_unpack_box(box: DeliveryBox) -> void:
 	if box == null:
 		return
-	if not bool(box.call("is_inside_storage")):
+	if not box.is_inside_storage():
 		_show_notification(LocalizationManager.text(&"notification.move_box_to_storage"))
 		return
 
-	var unpacked: Array = delivery_manager.call("process_box_unpack", box)
+	var unpacked := delivery_manager.process_box_unpack(box)
 	if unpacked.is_empty():
 		_show_notification(LocalizationManager.text(&"notification.box_already_unpacked"))
 		return
 
-	player_inventory.call("add_entries", unpacked)
+	player_inventory.add_entries(unpacked)
 	_show_notification(
 		LocalizationManager.text(
 			&"notification.box_unpacked_to_inventory",
-			{"box": String(box.call("get_display_name"))}
+			{"box": box.get_display_name()}
 		)
 	)
 	_refresh_inventory_hud()
 	_request_save()
 
 
-func try_restock_shelf(shelf: Node) -> void:
+func try_restock_shelf(shelf: StockShelf) -> void:
 	if shelf == null:
 		return
 
-	var result: Dictionary = shelf.call("restock_from_inventory", player_inventory, product_catalog)
+	var result := shelf.restock_from_inventory(player_inventory, product_catalog)
 	var added_quantity := int(result.get("added_quantity", 0))
 	if added_quantity <= 0:
 		_show_notification(
 			LocalizationManager.text(
 				&"notification.shelf_cannot_stock",
-				{"shelf": String(shelf.call("get_display_name"))}
+				{"shelf": shelf.get_display_name()}
 			)
 		)
 		return
 
-	var product: Variant = product_catalog.call("get_product", StringName(String(result.get("product_id", ""))))
-	var product_name := String(product.get("display_name")) if product != null else "product"
+	var product := product_catalog.get_product(StringName(String(result.get("product_id", ""))))
+	var product_name := product.display_name if product != null else "product"
 	_show_notification(
 		LocalizationManager.text(
 			&"notification.shelf_stocked",
 			{
-				"shelf": String(shelf.call("get_display_name")),
+				"shelf": shelf.get_display_name(),
 				"quantity": added_quantity,
 				"product": product_name
 			}
@@ -124,8 +124,12 @@ func _build_runtime() -> void:
 
 func _build_world_shell() -> void:
 	var world_context: Dictionary = _world_builder.build(world_root, interactable_root)
-	storage_zone = world_context.get("storage_zone") as Node3D
-	shelves = world_context.get("shelves", [])
+	storage_zone = world_context.get("storage_zone", null) as StorageZone
+	shelves.clear()
+	var raw_shelves: Array = world_context.get("shelves", [])
+	for shelf in raw_shelves:
+		if shelf is StockShelf:
+			shelves.append(shelf)
 
 
 func _build_systems() -> void:
@@ -135,8 +139,8 @@ func _build_systems() -> void:
 
 	player_inventory = load("res://scripts/game/systems/inventory_container.gd").new()
 	player_inventory.name = "PlayerInventory"
-	player_inventory.set("container_id", &"player_inventory")
-	player_inventory.set("max_distinct_stacks", 16)
+	player_inventory.container_id = &"player_inventory"
+	player_inventory.max_distinct_stacks = 16
 	systems_root.add_child(player_inventory)
 
 	delivery_manager = load("res://scripts/game/systems/delivery_manager.gd").new()
@@ -149,12 +153,12 @@ func _build_systems() -> void:
 
 
 func _build_player_and_hud() -> void:
-	player = PLAYER_SCENE.instantiate()
+	player = PLAYER_SCENE.instantiate() as PlayerController
 	player.name = "Player"
-	player.call("configure_game_root", self)
+	player.configure_game_root(self)
 	world_root.add_child(player)
 
-	hud = HUD_SCENE.instantiate()
+	hud = HUD_SCENE.instantiate() as GameHud
 	hud.name = "GameHud"
 	ui_layer.add_child(hud)
 
@@ -191,9 +195,12 @@ func _connect_runtime_signals() -> void:
 			_request_save()
 		)
 
-	morning_shift_manager.call("setup", delivery_manager, player_inventory, shelves)
+	for shelf in shelves:
+		shelf.set_catalog(product_catalog)
+
+	morning_shift_manager.setup(delivery_manager, player_inventory, product_catalog, shelves)
 	morning_shift_manager.connect("objective_changed", func(title: String, detail: String) -> void:
-		hud.call("set_objective", title, detail)
+		hud.set_objective(title, detail)
 	)
 	morning_shift_manager.connect("phase_changed", func(phase: StringName) -> void:
 		_current_phase_text = _phase_to_text(phase)
@@ -212,7 +219,7 @@ func _apply_save_data(save_data: Dictionary) -> void:
 		_save_coordinator.is_applying_save_data = true
 
 	var inventories := save_data.get("inventories", {}) as Dictionary
-	player_inventory.call("load_from_data", inventories.get("player", []) as Array)
+	player_inventory.load_from_data(inventories.get("player", []) as Array)
 
 	var shelf_state_by_id := {}
 	var saved_shelves: Array = save_data.get("shelves", [])
@@ -224,32 +231,27 @@ func _apply_save_data(save_data: Dictionary) -> void:
 			shelf_state_by_id[String(shelf_dict.get("shelf_id", ""))] = shelf_dict
 
 	for shelf in shelves:
-		var shelf_id := String(shelf.get("shelf_id"))
+		var shelf_id := String(shelf.shelf_id)
 		if shelf_state_by_id.has(shelf_id):
-			shelf.call("configure_from_data", shelf_state_by_id[shelf_id] as Dictionary)
+			shelf.configure_from_data(shelf_state_by_id[shelf_id] as Dictionary)
 
 	var delivery_state := save_data.get("delivery", {}) as Dictionary
-	delivery_manager.call("initialize_delivery", delivery_state, storage_zone, interactable_root)
+	delivery_manager.initialize_delivery(delivery_state, storage_zone, interactable_root)
 
 	var player_state := save_data.get("player", {}) as Dictionary
 	var position_data: Array = player_state.get("position", [0.0, 0.0, 5.2])
 	var player_position := Vector3(0.0, 0.0, 5.2)
 	if position_data is Array and position_data.size() >= 3:
 		player_position = Vector3(float(position_data[0]), float(position_data[1]), float(position_data[2]))
-	player.call(
-		"apply_saved_view",
-		player_position,
-		float(player_state.get("yaw", PI)),
-		float(player_state.get("pitch", 0.0))
-	)
+	player.apply_saved_view(player_position, float(player_state.get("yaw", PI)), float(player_state.get("pitch", 0.0)))
 
 	var progress := save_data.get("progress", {}) as Dictionary
 	_current_day = int(progress.get("current_day", 1))
 	if _save_coordinator != null:
 		_save_coordinator.current_day = _current_day
 
-	morning_shift_manager.call("load_state", save_data.get("morning_shift", {}) as Dictionary)
-	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
+	morning_shift_manager.load_state(save_data.get("morning_shift", {}) as Dictionary)
+	_current_phase_text = _phase_to_text(morning_shift_manager.get_phase())
 	_refresh_inventory_hud()
 	_refresh_status_hud()
 
@@ -266,21 +268,21 @@ func _request_save(immediate: bool = false) -> void:
 
 func _refresh_inventory_hud() -> void:
 	var lines := PackedStringArray()
-	for entry in player_inventory.call("get_sorted_entries", product_catalog):
-		var product: Variant = product_catalog.call("get_product", StringName(String(entry.get("product_id", ""))))
+	for entry in player_inventory.get_sorted_entries(product_catalog):
+		var product := product_catalog.get_product(StringName(String(entry.get("product_id", ""))))
 		if product == null:
 			continue
-		lines.append("%s x%d" % [String(product.get("display_name")), int(entry.get("quantity", 0))])
-	hud.call("set_inventory_lines", lines)
+		lines.append("%s x%d" % [product.display_name, int(entry.get("quantity", 0))])
+	hud.set_inventory_lines(lines)
 
 
 func _refresh_status_hud() -> void:
-	hud.call("set_status", _current_day, _current_phase_text, _carried_label)
+	hud.set_status(_current_day, _current_phase_text, _carried_label)
 
 
 func _show_notification(text_value: String) -> void:
 	if hud != null:
-		hud.call("show_notification", text_value)
+		hud.show_notification(text_value)
 
 
 func _on_carried_box_changed(label: String) -> void:
@@ -308,8 +310,8 @@ func _phase_to_text(phase: StringName) -> String:
 
 
 func _on_locale_changed(_locale_code: StringName, _is_rtl: bool) -> void:
-	_current_phase_text = _phase_to_text(morning_shift_manager.call("get_phase"))
+	_current_phase_text = _phase_to_text(morning_shift_manager.get_phase())
 	if morning_shift_manager != null:
-		morning_shift_manager.call("_emit_objective")
+		morning_shift_manager.refresh_objective()
 	_refresh_inventory_hud()
 	_refresh_status_hud()

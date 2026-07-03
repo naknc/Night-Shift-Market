@@ -57,10 +57,10 @@ func build(world_root: Node3D, interactable_root: Node3D) -> Dictionary:
 	lane_marker.material_override = lane_material
 	world_root.add_child(lane_marker)
 
-	var storage_zone := load("res://scripts/game/world/storage_zone.gd").new() as Node3D
+	var storage_zone := StorageZone.new()
 	storage_zone.name = "StorageZone"
-	storage_zone.set("zone_name", "Backroom Storage")
-	storage_zone.set("half_extents", Vector3(2.7, 1.5, 2.5))
+	storage_zone.zone_name = "Backroom Storage"
+	storage_zone.half_extents = Vector3(2.7, 1.5, 2.5)
 	storage_zone.position = Vector3(-5.7, 0.0, 5.8)
 	world_root.add_child(storage_zone)
 
@@ -73,8 +73,8 @@ func build(world_root: Node3D, interactable_root: Node3D) -> Dictionary:
 	}
 
 
-func _build_shelves(interactable_root: Node3D) -> Array:
-	var shelves: Array = []
+func _build_shelves(interactable_root: Node3D) -> Array[StockShelf]:
+	var shelves: Array[StockShelf] = []
 	var shelf_configs := [
 		{
 			"shelf_id": "drink_front",
@@ -106,12 +106,12 @@ func _build_shelves(interactable_root: Node3D) -> Array:
 	]
 
 	for config in shelf_configs:
-		var shelf := SHELF_SCENE.instantiate()
+		var shelf := SHELF_SCENE.instantiate() as StockShelf
 		if shelf == null:
 			continue
 		var shelf_position: Vector3 = config.get("position", Vector3.ZERO)
 		shelf.position = shelf_position
-		shelf.call("configure_from_data", config)
+		shelf.configure_from_data(config)
 		interactable_root.add_child(shelf)
 		shelves.append(shelf)
 
@@ -148,8 +148,8 @@ func _build_lighting(world_root: Node3D) -> void:
 		world_root.add_child(omni)
 
 
-func _collect_existing_shelves(interactable_root: Node3D) -> Array:
-	var shelves: Array = []
+func _collect_existing_shelves(interactable_root: Node3D) -> Array[StockShelf]:
+	var shelves: Array[StockShelf] = []
 	for child in interactable_root.get_children():
 		if child is StockShelf:
 			shelves.append(child)

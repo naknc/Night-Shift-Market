@@ -4,15 +4,17 @@ class_name MorningShiftManager
 signal objective_changed(title: String, detail: String)
 signal phase_changed(phase: StringName)
 
-var delivery_manager: Node = null
-var player_inventory: Node = null
-var shelves: Array = []
+var delivery_manager: DeliveryManager = null
+var player_inventory: InventoryContainer = null
+var product_catalog: ProductCatalog = null
+var shelves: Array[StockShelf] = []
 var _phase: StringName = &"truck_arrival"
 
 
-func setup(delivery: Node, inventory: Node, shelf_list: Array) -> void:
+func setup(delivery: DeliveryManager, inventory: InventoryContainer, catalog: ProductCatalog, shelf_list: Array[StockShelf]) -> void:
 	delivery_manager = delivery
 	player_inventory = inventory
+	product_catalog = catalog
 	shelves = shelf_list
 
 	if delivery_manager != null:
@@ -44,7 +46,7 @@ func serialize_state() -> Dictionary:
 func load_state(data: Dictionary) -> void:
 	if data.has("phase"):
 		_phase = StringName(String(data.get("phase", "truck_arrival")))
-	_emit_objective()
+	refresh_objective()
 
 
 func _refresh_phase(_arg_a: Variant = null, _arg_b: Variant = null) -> void:
@@ -52,34 +54,32 @@ func _refresh_phase(_arg_a: Variant = null, _arg_b: Variant = null) -> void:
 	if next_phase != _phase:
 		_phase = next_phase
 		phase_changed.emit(_phase)
-	_emit_objective()
+	refresh_objective()
 
 
 func _calculate_phase() -> StringName:
 	if delivery_manager == null or player_inventory == null:
 		return &"truck_arrival"
-
-	var catalog: Node = _find_catalog()
-	if catalog == null:
+	if product_catalog == null:
 		return _phase
 
-	var active_boxes: Array = delivery_manager.call("get_active_boxes")
-	if StringName(delivery_manager.call("get_state")) == &"arriving":
+	var active_boxes := delivery_manager.get_active_boxes()
+	if delivery_manager.get_state() == &"arriving":
 		return &"truck_arrival"
 
 	if not active_boxes.is_empty():
-		if not bool(delivery_manager.call("are_all_boxes_in_storage")):
+		if not delivery_manager.are_all_boxes_in_storage():
 			return &"move_boxes_to_storage"
 		return &"unpack_boxes"
 
 	for shelf in shelves:
-		if bool(shelf.call("needs_stock", catalog)) and bool(shelf.call("can_restock_from_inventory", player_inventory, catalog)):
+		if shelf.needs_stock(product_catalog) and shelf.can_restock_from_inventory(player_inventory, product_catalog):
 			return &"restock_shelves"
 
 	return &"morning_complete"
 
 
-func _emit_objective() -> void:
+func refresh_objective() -> void:
 	match _phase:
 		&"truck_arrival":
 			objective_changed.emit(LocalizationManager.text(&"objective.truck_arrival.title"), LocalizationManager.text(&"objective.truck_arrival.detail"))
@@ -91,11 +91,3 @@ func _emit_objective() -> void:
 			objective_changed.emit(LocalizationManager.text(&"objective.restock_shelves.title"), LocalizationManager.text(&"objective.restock_shelves.detail"))
 		_:
 			objective_changed.emit(LocalizationManager.text(&"objective.morning_complete.title"), LocalizationManager.text(&"objective.morning_complete.detail"))
-
-
-func _find_catalog() -> Node:
-	var root_node := get_tree().current_scene
-	if root_node == null:
-		return null
-	var catalog_node: Node = root_node.find_child("ProductCatalog", true, false)
-	return catalog_node

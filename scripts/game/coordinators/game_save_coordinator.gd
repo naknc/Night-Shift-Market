@@ -3,11 +3,11 @@ class_name GameSaveCoordinator
 
 const SAVE_DEBOUNCE_SECONDS: float = 1.25
 
-var player: Node = null
-var player_inventory: Node = null
-var shelves: Array = []
-var delivery_manager: Node = null
-var morning_shift_manager: Node = null
+var player: PlayerController = null
+var player_inventory: InventoryContainer = null
+var shelves: Array[StockShelf] = []
+var delivery_manager: DeliveryManager = null
+var morning_shift_manager: MorningShiftManager = null
 var current_day: int = 1
 var is_runtime_ready: bool = false
 var is_applying_save_data: bool = false
@@ -27,11 +27,11 @@ func _ready() -> void:
 
 
 func configure(
-	player_node: Node,
-	player_inventory_node: Node,
-	shelf_nodes: Array,
-	delivery_manager_node: Node,
-	morning_shift_manager_node: Node
+	player_node: PlayerController,
+	player_inventory_node: InventoryContainer,
+	shelf_nodes: Array[StockShelf],
+	delivery_manager_node: DeliveryManager,
+	morning_shift_manager_node: MorningShiftManager
 ) -> void:
 	player = player_node
 	player_inventory = player_inventory_node
@@ -71,17 +71,17 @@ func _build_save_data_snapshot() -> Dictionary:
 	progress["has_started"] = true
 	save_data["progress"] = progress
 
-	save_data["player"] = player.call("serialize_state")
+	save_data["player"] = player.serialize_state()
 	save_data["inventories"] = {
-		"player": player_inventory.call("serialize")
+		"player": player_inventory.serialize()
 	}
 
 	var serialized_shelves: Array[Dictionary] = []
 	for shelf in shelves:
-		serialized_shelves.append(shelf.call("serialize_state"))
+		serialized_shelves.append(shelf.serialize_state())
 	save_data["shelves"] = serialized_shelves
-	save_data["delivery"] = delivery_manager.call("serialize_state")
-	save_data["morning_shift"] = morning_shift_manager.call("serialize_state")
+	save_data["delivery"] = delivery_manager.serialize_state()
+	save_data["morning_shift"] = morning_shift_manager.serialize_state()
 	save_data["world"] = {"scene_id": "morning_delivery"}
 	return save_data
 

@@ -13,12 +13,12 @@ signal pause_requested()
 @export var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)
 @export var interact_distance: float = 3.2
 
-var _game_root: Node = null
 var _move_input: Vector2 = Vector2.ZERO
 var _look_input: Vector2 = Vector2.ZERO
 var _yaw: float = 0.0
 var _pitch: float = 0.0
-var _carried_box: Node = null
+var _game_root: GameRoot = null
+var _carried_box: DeliveryBox = null
 
 @onready var head: Node3D = $Head
 @onready var camera: Camera3D = $Head/Camera3D
@@ -38,7 +38,7 @@ func _exit_tree() -> void:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 
 
-func configure_game_root(root: Node) -> void:
+func configure_game_root(root: GameRoot) -> void:
 	_game_root = root
 
 
@@ -68,7 +68,7 @@ func serialize_state() -> Dictionary:
 	}
 
 
-func get_carried_box() -> Node:
+func get_carried_box() -> DeliveryBox:
 	return _carried_box
 
 
@@ -138,17 +138,17 @@ func _try_interact() -> void:
 		notification_requested.emit(LocalizationManager.text(&"notification.nothing_to_interact"))
 		return
 
-	if collider != null and collider.has_method("unpack"):
-		if _game_root != null and _game_root.has_method("try_unpack_box"):
-			_game_root.call("try_unpack_box", collider)
+	if collider is DeliveryBox:
+		if _game_root != null:
+			_game_root.try_unpack_box(collider)
 		return
 
-	if collider != null and collider.has_method("restock_from_inventory"):
+	if collider is StockShelf:
 		if _carried_box != null:
 			notification_requested.emit(LocalizationManager.text(&"notification.drop_box_before_stock"))
 			return
-		if _game_root != null and _game_root.has_method("try_restock_shelf"):
-			_game_root.call("try_restock_shelf", collider)
+		if _game_root != null:
+			_game_root.try_restock_shelf(collider)
 		return
 
 	notification_requested.emit(LocalizationManager.text(&"notification.object_not_ready"))
@@ -160,10 +160,10 @@ func _try_grab_or_drop() -> void:
 		return
 
 	var collider := _get_interactable()
-	if collider != null and collider.has_method("can_be_grabbed") and bool(collider.call("can_be_grabbed")):
-		_carried_box = collider as Node
-		_carried_box.call("grab_to", carry_anchor)
-		carried_box_changed.emit(String(_carried_box.call("get_display_name")))
+	if collider is DeliveryBox and collider.can_be_grabbed():
+		_carried_box = collider
+		_carried_box.grab_to(carry_anchor)
+		carried_box_changed.emit(_carried_box.get_display_name())
 		player_state_changed.emit()
 		return
 
@@ -179,15 +179,15 @@ func _drop_carried_box() -> void:
 	drop_position.y = 0.35
 	var drop_basis := Basis.IDENTITY
 
-	if _game_root != null and _game_root.has_method("get_interactable_root"):
-		_carried_box.call("drop_to", _game_root.call("get_interactable_root"), drop_position, drop_basis)
+	if _game_root != null:
+		_carried_box.drop_to(_game_root.get_interactable_root(), drop_position, drop_basis)
 	else:
-		_carried_box.call("drop_to", get_parent() as Node3D, drop_position, drop_basis)
+		_carried_box.drop_to(get_parent() as Node3D, drop_position, drop_basis)
 
 	notification_requested.emit(
 		LocalizationManager.text(
 			&"notification.box_dropped",
-			{"box": String(_carried_box.call("get_display_name"))}
+			{"box": _carried_box.get_display_name()}
 		)
 	)
 	_carried_box = null
@@ -195,22 +195,20 @@ func _drop_carried_box() -> void:
 	player_state_changed.emit()
 
 
-func _get_interactable() -> Object:
+func _get_interactable() -> Node:
 	raycast.force_raycast_update()
 	if not raycast.is_colliding():
 		return null
-	return raycast.get_collider()
+	return raycast.get_collider() as Node
 
 
 func _update_interaction_prompt() -> void:
 	var collider := _get_interactable()
-	if collider != null and collider.has_method("unpack"):
-		prompt_changed.emit(String(collider.call("get_interaction_prompt")))
+	if collider is DeliveryBox:
+		prompt_changed.emit(collider.get_interaction_prompt())
 		return
-	if collider != null and collider.has_method("restock_from_inventory"):
+	if collider is StockShelf:
 		if _game_root != null:
-			var inventory: Variant = _game_root.get("player_inventory")
-			var catalog: Variant = _game_root.get("product_catalog")
-			prompt_changed.emit(String(collider.call("get_interaction_prompt", inventory, catalog)))
+			prompt_changed.emit(collider.get_interaction_prompt(_game_root.player_inventory, _game_root.product_catalog))
 			return
 	prompt_changed.emit("")

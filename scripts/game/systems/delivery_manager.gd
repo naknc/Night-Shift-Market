@@ -281,7 +281,7 @@ func _set_truck_position(position_value: Vector3) -> void:
 
 
 func _read_truck_position(data: Dictionary, fallback: Vector3) -> Vector3:
-	var position_data := data.get("truck_position", [fallback.x, fallback.y, fallback.z])
+	var position_data: Variant = data.get("truck_position", [fallback.x, fallback.y, fallback.z])
 	if position_data is Array and position_data.size() >= 3:
 		return Vector3(float(position_data[0]), float(position_data[1]), float(position_data[2]))
 	return fallback

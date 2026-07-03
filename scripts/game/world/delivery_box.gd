@@ -8,7 +8,7 @@ var box_id: StringName = &""
 var display_name: String = "Delivery Box"
 var display_name_key: StringName = &""
 var contents: Array[Dictionary] = []
-var storage_zone: Node3D = null
+var storage_zone: StorageZone = null
 var home_parent: Node3D = null
 var is_opened: bool = false
 var is_carried: bool = false
@@ -28,7 +28,7 @@ func _exit_tree() -> void:
 		LocalizationManager.locale_changed.disconnect(_on_locale_changed)
 
 
-func configure_from_data(data: Dictionary, zone: Node3D, world_parent: Node3D) -> void:
+func configure_from_data(data: Dictionary, zone: StorageZone, world_parent: Node3D) -> void:
 	box_id = StringName(String(data.get("box_id", "box")))
 	display_name = String(data.get("display_name", "Delivery Box"))
 	display_name_key = StringName(String(data.get("display_name_key", "")))
@@ -83,7 +83,7 @@ func can_be_grabbed() -> bool:
 
 
 func is_inside_storage() -> bool:
-	return storage_zone != null and bool(storage_zone.call("contains_world_position", global_position))
+	return storage_zone != null and storage_zone.contains_world_position(global_position)
 
 
 func grab_to(anchor: Node3D) -> void:
