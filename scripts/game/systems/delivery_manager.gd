@@ -6,6 +6,7 @@ signal box_manifest_changed()
 signal all_boxes_unpacked()
 
 const BOX_SCENE: PackedScene = preload("res://scenes/prefabs/world/delivery_box.tscn")
+const CONTENT_LOADER_SCRIPT: Script = preload("res://scripts/game/data/gameplay_content_loader.gd")
 
 var storage_zone: Node3D = null
 var world_parent: Node3D = null
@@ -15,6 +16,7 @@ var _cargo_anchor: Node3D
 var _active_boxes: Array[Node] = []
 var _state: StringName = &"idle"
 var _truck_tween: Tween = null
+var _content_loader: RefCounted = CONTENT_LOADER_SCRIPT.new()
 
 
 func _ready() -> void:
@@ -131,20 +133,18 @@ func _spawn_default_boxes() -> void:
 	if not _active_boxes.is_empty():
 		return
 
-	var manifests := _make_default_box_manifest()
-	var anchor_positions := [
-		_cargo_anchor.global_position + Vector3(-0.7, 0.45, 0.2),
-		_cargo_anchor.global_position + Vector3(0.0, 0.45, 0.0),
-		_cargo_anchor.global_position + Vector3(0.7, 0.45, -0.2)
-	]
+	var manifests: Array[Dictionary] = _content_loader.load_delivery_manifest()
 
 	for index in manifests.size():
 		var box := BOX_SCENE.instantiate() as Node
 		if box == null:
 			continue
 		world_parent.add_child(box)
-		var box_data: Dictionary = manifests[index]
-		box_data["position"] = [anchor_positions[index].x, anchor_positions[index].y, anchor_positions[index].z]
+		var box_data: Dictionary = (manifests[index] as Dictionary).duplicate(true)
+		var offset := _read_offset_vector(box_data.get("offset", [0.0, 0.45, 0.0]))
+		var anchor_position := _cargo_anchor.global_position + offset
+		box_data.erase("offset")
+		box_data["position"] = [anchor_position.x, anchor_position.y, anchor_position.z]
 		box.call("configure_from_data", box_data, storage_zone, world_parent)
 		_watch_box(box)
 		_active_boxes.append(box)
@@ -297,36 +297,10 @@ func _get_transition_duration(start_position: Vector3, target_position: Vector3,
 	return maxf(0.01, full_duration * (remaining_distance / full_distance))
 
 
-func _make_default_box_manifest() -> Array[Dictionary]:
-	return [
-		{
-			"box_id": "box_drinks",
-			"display_name": "Cold Drinks",
-			"display_name_key": "name.box.box_drinks",
-			"contents": [
-				{"product_id": "sparkling_water", "quantity": 10},
-				{"product_id": "orange_soda", "quantity": 8}
-			]
-		},
-		{
-			"box_id": "box_snacks",
-			"display_name": "Snack Refill",
-			"display_name_key": "name.box.box_snacks",
-			"contents": [
-				{"product_id": "sea_salt_chips", "quantity": 8},
-				{"product_id": "granola_bar", "quantity": 12}
-			]
-		},
-		{
-			"box_id": "box_fruit",
-			"display_name": "Produce Delivery",
-			"display_name_key": "name.box.box_fruit",
-			"contents": [
-				{"product_id": "green_apple", "quantity": 14},
-				{"product_id": "clementine_pack", "quantity": 6}
-			]
-		}
-	]
+func _read_offset_vector(raw_offset: Variant) -> Vector3:
+	if raw_offset is Array and raw_offset.size() >= 3:
+		return Vector3(float(raw_offset[0]), float(raw_offset[1]), float(raw_offset[2]))
+	return Vector3(0.0, 0.45, 0.0)
 
 
 func _make_box_mesh(position_value: Vector3, size_value: Vector3, material: Material) -> MeshInstance3D:

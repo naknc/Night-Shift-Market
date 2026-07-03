@@ -1,0 +1,31 @@
+{
+	"layouts": [
+		{
+			"shelf_id": "drink_front",
+			"shelf_label": "Drink Cooler",
+			"shelf_label_key": "name.shelf.drink_front",
+			"shelf_type": "drink_shelf",
+			"accepted_categories": ["drink"],
+			"capacity_units": 14,
+			"position": [-2.4, 0.0, 0.6]
+		},
+		{
+			"shelf_id": "snack_mid",
+			"shelf_label": "Snack Wall",
+			"shelf_label_key": "name.shelf.snack_mid",
+			"shelf_type": "snack_shelf",
+			"accepted_categories": ["snack"],
+			"capacity_units": 16,
+			"position": [0.0, 0.0, -0.6]
+		},
+		{
+			"shelf_id": "fruit_corner",
+			"shelf_label": "Produce Stand",
+			"shelf_label_key": "name.shelf.fruit_corner",
+			"shelf_type": "fruit_shelf",
+			"accepted_categories": ["fruit"],
+			"capacity_units": 14,
+			"position": [2.5, 0.0, 0.8]
+		}
+	]
+}

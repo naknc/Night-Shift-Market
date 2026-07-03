@@ -1,0 +1,39 @@
+{
+	"deliveries": [
+		{
+			"delivery_id": "morning_delivery",
+			"boxes": [
+				{
+					"box_id": "box_drinks",
+					"display_name": "Cold Drinks",
+					"display_name_key": "name.box.box_drinks",
+					"offset": [-0.7, 0.45, 0.2],
+					"contents": [
+						{"product_id": "sparkling_water", "quantity": 10},
+						{"product_id": "orange_soda", "quantity": 8}
+					]
+				},
+				{
+					"box_id": "box_snacks",
+					"display_name": "Snack Refill",
+					"display_name_key": "name.box.box_snacks",
+					"offset": [0.0, 0.45, 0.0],
+					"contents": [
+						{"product_id": "sea_salt_chips", "quantity": 8},
+						{"product_id": "granola_bar", "quantity": 12}
+					]
+				},
+				{
+					"box_id": "box_fruit",
+					"display_name": "Produce Delivery",
+					"display_name_key": "name.box.box_fruit",
+					"offset": [0.7, 0.45, -0.2],
+					"contents": [
+						{"product_id": "green_apple", "quantity": 14},
+						{"product_id": "clementine_pack", "quantity": 6}
+					]
+				}
+			]
+		}
+	]
+}

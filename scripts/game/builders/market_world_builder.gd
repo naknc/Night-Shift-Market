@@ -2,6 +2,9 @@ extends RefCounted
 class_name MarketWorldBuilder
 
 const SHELF_SCENE: PackedScene = preload("res://scenes/prefabs/world/stock_shelf.tscn")
+const CONTENT_LOADER_SCRIPT: Script = preload("res://scripts/game/data/gameplay_content_loader.gd")
+
+var _content_loader: RefCounted = CONTENT_LOADER_SCRIPT.new()
 
 
 func build(world_root: Node3D, interactable_root: Node3D) -> Dictionary:
@@ -75,35 +78,7 @@ func build(world_root: Node3D, interactable_root: Node3D) -> Dictionary:
 
 func _build_shelves(interactable_root: Node3D) -> Array[StockShelf]:
 	var shelves: Array[StockShelf] = []
-	var shelf_configs := [
-		{
-			"shelf_id": "drink_front",
-			"shelf_label": "Drink Cooler",
-			"shelf_label_key": "name.shelf.drink_front",
-			"shelf_type": "drink_shelf",
-			"accepted_categories": ["drink"],
-			"capacity_units": 14,
-			"position": Vector3(-2.4, 0.0, 0.6)
-		},
-		{
-			"shelf_id": "snack_mid",
-			"shelf_label": "Snack Wall",
-			"shelf_label_key": "name.shelf.snack_mid",
-			"shelf_type": "snack_shelf",
-			"accepted_categories": ["snack"],
-			"capacity_units": 16,
-			"position": Vector3(0.0, 0.0, -0.6)
-		},
-		{
-			"shelf_id": "fruit_corner",
-			"shelf_label": "Produce Stand",
-			"shelf_label_key": "name.shelf.fruit_corner",
-			"shelf_type": "fruit_shelf",
-			"accepted_categories": ["fruit"],
-			"capacity_units": 14,
-			"position": Vector3(2.5, 0.0, 0.8)
-		}
-	]
+	var shelf_configs: Array[Dictionary] = _content_loader.load_shelf_layouts()
 
 	for config in shelf_configs:
 		var shelf := SHELF_SCENE.instantiate() as StockShelf
