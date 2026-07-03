@@ -8,6 +8,7 @@ signal app_state_changed(state: int)
 const MAIN_SCENE_PATH: String = "res://scenes/core/main.tscn"
 const MAIN_MENU_SCENE: PackedScene = preload("res://scenes/ui/main_menu/main_menu.tscn")
 const GAME_SCENE: PackedScene = preload("res://scenes/game/game.tscn")
+const SMOKE_TEST_RUNNER_SCRIPT: Script = preload("res://scripts/debug/smoke_test_runner.gd")
 
 enum AppState {
 	BOOTSTRAPPING,
@@ -44,6 +45,9 @@ func start_bootstrap() -> void:
 	PerformanceManager.apply_startup_profile()
 	boot_progress_changed.emit(0.42, LocalizationManager.text(&"bootstrap.step.audio"))
 	AudioManager.initialize_from_settings()
+	if _is_smoke_test_requested():
+		call_deferred("_run_smoke_tests")
+		return
 	boot_progress_changed.emit(0.60, LocalizationManager.text(&"bootstrap.step.scene"))
 
 	_main_scene_cache = load(MAIN_SCENE_PATH) as PackedScene
@@ -136,3 +140,29 @@ func _fail_boot(message: String) -> void:
 	_boot_requested = false
 	push_error(message)
 	boot_failed.emit(message)
+
+
+func _is_smoke_test_requested() -> bool:
+	for argument in OS.get_cmdline_user_args():
+		if argument == "--smoke-test":
+			return true
+	return false
+
+
+func _run_smoke_tests() -> void:
+	var smoke_runner: RefCounted = SMOKE_TEST_RUNNER_SCRIPT.new()
+	if smoke_runner == null:
+		_fail_boot("Smoke test runner could not be created.")
+		get_tree().quit(1)
+		return
+
+	var did_pass: bool = await smoke_runner.run(get_tree())
+	if did_pass:
+		_boot_requested = false
+		boot_progress_changed.emit(1.0, LocalizationManager.text(&"bootstrap.status.ready"))
+		boot_completed.emit()
+		get_tree().quit()
+		return
+
+	_fail_boot("Smoke tests failed.")
+	get_tree().quit(1)
